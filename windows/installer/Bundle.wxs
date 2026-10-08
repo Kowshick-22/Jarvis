@@ -1,0 +1,25 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle
+      Name="OpenJarvis"
+      Version="1.0.0"
+      Manufacturer="OpenJarvis"
+      UpgradeCode="c4d5e6f7-8901-4a2b-bcde-f12345678901"
+      Compressed="yes">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+          LicenseUrl="https://github.com/open-jarvis/OpenJarvis"
+          Theme="hyperlinkLicense"
+          ShowVersion="yes" />
+    </BootstrapperApplication>
+    <bal:Condition Message="OpenJarvis requires an ARM64 Windows PC (Windows 11 24H2 / build 26100 or later, including Surface Laptop Ultra on 26H1).">
+      VersionNT64 AND ARM64
+    </bal:Condition>
+    <Chain>
+      <MsiPackage
+          Id="OpenJarvisApp"
+          SourceFile="$(var.MsiPath)"
+          DisplayInternalUI="no"
+          Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

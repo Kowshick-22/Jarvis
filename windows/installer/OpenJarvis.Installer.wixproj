@@ -1,0 +1,12 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>ARM64</Platform>
+    <PublishDir Condition="'$(PublishDir)' == ''">..\OpenJarvis.WinUI\bin\publish\win-arm64</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Bundle.wxs" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,29 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.SetupPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="24">
+        <StackPanel MaxWidth="720" Spacing="16">
+            <TextBlock Text="Set up OpenJarvis" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock
+                Text="This downloads Foundry Local models and Windows ML execution providers. After setup, chat works without a network."
+                TextWrapping="Wrap" />
+            <ProgressBar x:Name="SetupProgress" IsIndeterminate="True" AutomationProperties.Name="Setup progress" />
+            <TextBlock
+                x:Name="SetupStatus"
+                Text="Waiting to start…"
+                TextWrapping="Wrap"
+                AutomationProperties.LiveSetting="Polite" />
+            <InfoBar
+                x:Name="SetupError"
+                IsOpen="False"
+                Severity="Error"
+                IsClosable="False"
+                Title="Setup could not finish" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Start setup" Click="Start_Click" AccessKey="S" AutomationProperties.Name="Start setup" />
+                <Button Content="Skip for now" Click="Skip_Click" AutomationProperties.Name="Skip setup" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

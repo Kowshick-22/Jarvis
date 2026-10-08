@@ -1372,16 +1372,46 @@ async def reset_telemetry():
 
 @router.get("/v1/info")
 async def server_info(request: Request):
-    """Return server configuration: model, agent, engine."""
+    """Return server configuration: model, agent, engine, hardware."""
     agent = getattr(request.app.state, "agent", None)
     agent_id = getattr(agent, "agent_id", None) if agent else None
     # Fall back to configured agent name if agent didn't instantiate
     if agent_id is None:
         agent_id = getattr(request.app.state, "agent_name", None)
+    hw = getattr(request.app.state, "hardware", None)
+    gpu = getattr(hw, "gpu", None) if hw is not None else None
+    tool_calling = getattr(request.app.state, "tool_calling", None) or {}
+    hardware = None
+    if hw is not None:
+        hardware = {
+            "platform": getattr(hw, "platform", ""),
+            "arch": getattr(hw, "arch", ""),
+            "cpu_brand": getattr(hw, "cpu_brand", ""),
+            "cpu_count": getattr(hw, "cpu_count", 0),
+            "ram_gb": getattr(hw, "ram_gb", 0.0),
+            "execution_provider": getattr(hw, "execution_provider", ""),
+            "execution_provider_fallback": bool(
+                getattr(hw, "execution_provider_fallback", False)
+            ),
+            "gpu": None
+            if gpu is None
+            else {
+                "vendor": gpu.vendor,
+                "name": gpu.name,
+                "vram_gb": gpu.vram_gb,
+                "count": gpu.count,
+            },
+        }
     return {
         "model": getattr(request.app.state, "model", ""),
         "agent": agent_id,
         "engine": getattr(request.app.state, "engine_name", ""),
+        "hardware": hardware,
+        "allow_cloud": bool(getattr(request.app.state, "allow_cloud", False)),
+        "tool_calling": {
+            "supported": bool(tool_calling.get("supported", True)),
+            "reason": tool_calling.get("reason") or "",
+        },
     }
 
 

@@ -1628,6 +1628,51 @@ class TestHealthEndpoint:
         assert resp.status_code == 503
 
 
+class TestInfoEndpoint:
+    def test_basic_info(self, client):
+        resp = client.get("/v1/info")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["model"] == "test-model"
+        assert body["allow_cloud"] is False
+        assert body["tool_calling"]["supported"] is True
+
+    def test_hardware_and_execution_provider(self):
+        from openjarvis.core.config import GpuInfo, HardwareInfo
+
+        engine = _make_engine()
+        app = create_app(
+            engine,
+            "Phi-4-mini-instruct",
+            engine_name="foundry_local",
+            config=_test_config(),
+        )
+        app.state.hardware = HardwareInfo(
+            platform="windows",
+            arch="ARM64",
+            cpu_brand="NVIDIA RTX Spark N1X",
+            ram_gb=24.0,
+            execution_provider="CUDAExecutionProvider",
+            execution_provider_fallback=False,
+            gpu=GpuInfo(
+                vendor="nvidia",
+                name="NVIDIA RTX Spark N1X",
+                vram_gb=24.0,
+                count=1,
+            ),
+        )
+        app.state.allow_cloud = False
+        app.state.tool_calling = {"supported": True, "reason": ""}
+        client = TestClient(app)
+        body = client.get("/v1/info").json()
+        assert body["engine"] == "foundry_local"
+        assert body["model"] == "Phi-4-mini-instruct"
+        assert body["hardware"]["arch"] == "ARM64"
+        assert body["hardware"]["execution_provider"] == "CUDAExecutionProvider"
+        assert body["hardware"]["execution_provider_fallback"] is False
+        assert body["hardware"]["gpu"]["vendor"] == "nvidia"
+
+
 # ---------------------------------------------------------------------------
 # App creation tests
 # ---------------------------------------------------------------------------

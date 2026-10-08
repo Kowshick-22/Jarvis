@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="OpenJarvis"
+      Manufacturer="OpenJarvis"
+      Version="1.0.0"
+      UpgradeCode="8f3c1a2e-4b7d-4e91-9c2a-7d5e6f8a9b10"
+      Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of OpenJarvis is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="Main" Title="OpenJarvis" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="UninstallCleanup" />
+    </Feature>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="InstallFolder" Name="OpenJarvis" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppStartMenu" Name="OpenJarvis" />
+    </StandardDirectory>
+    <Component Id="UninstallCleanup" Directory="InstallFolder" Guid="2c9e4b11-7a55-4f0d-9e3c-1a2b3c4d5e6f">
+      <RegistryValue
+          Root="HKLM"
+          Key="Software\OpenJarvis"
+          Name="InstallDir"
+          Type="string"
+          Value="[InstallFolder]"
+          KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>
