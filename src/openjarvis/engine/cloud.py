@@ -69,10 +69,21 @@ PRICING: Dict[str, tuple[float, float]] = {
     "atlascloud/zai-org/GLM-4.6": (0.60, 2.20),
     "atlascloud/moonshotai/kimi-k2.5": (0.49, 2.50),
     "atlascloud/minimaxai/minimax-m2.5": (0.295, 1.20),
+    # Cheaper Inference public catalog snapshot, 2026-10-12, USD per 1M
+    # tokens: https://api.cheaperinference.com/public/models . Marketplace
+    # prices vary; these are estimates, not settled billing amounts.
+    "cheaperinference/gpt-5.4-mini": (0.4875, 2.925),
+    "cheaperinference/gpt-5.4": (1.625, 9.75),
+    "cheaperinference/claude-sonnet-5": (1.3, 6.5),
+    "cheaperinference/gemini-3.1-pro": (1.650244, 9.901461),
 }
 
 _MINIMAX_M3_LONG_CONTEXT_THRESHOLD = 512_000
 _MINIMAX_M3_LONG_CONTEXT_PRICING = (0.60, 2.40)
+_CHEAPERINFERENCE_LONG_CONTEXT_PRICING = {
+    "cheaperinference/gpt-5.4": (272_000, (3.25, 14.625)),
+    "cheaperinference/gemini-3.1-pro": (200_000, (3.300487, 14.852192)),
+}
 
 # Well-known model IDs per provider
 _OPENAI_MODELS = [
@@ -193,6 +204,36 @@ def _is_cheaperinference_model(model: str) -> bool:
     return model.startswith("cheaperinference/")
 
 
+def _cheaperinference_request_kwargs(
+    messages: Sequence[Message],
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Build one gateway payload for generation and both streaming paths."""
+    from openjarvis.engine._stubs import ResponseFormat
+
+    request = {
+        "model": model.removeprefix("cheaperinference/"),
+        "messages": messages_to_dicts(messages),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        **kwargs,
+    }
+    response_format = request.get("response_format")
+    if isinstance(response_format, ResponseFormat):
+        if response_format.type == "json_schema" and response_format.schema:
+            request["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": response_format.schema},
+            }
+        else:
+            request["response_format"] = {"type": "json_object"}
+    return request
+
+
 def _is_codex_model(model: str) -> bool:
     return model.startswith("codex/")
 
@@ -293,11 +334,13 @@ def _chat_completion_with_temperature_retry(
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Estimate USD cost based on the hardcoded pricing table."""
     # Try exact match first, then prefix match
+    pricing_key = model
     prices = PRICING.get(model)
     if prices is None:
         for key, val in PRICING.items():
             if model.startswith(key):
                 prices = val
+                pricing_key = key
                 break
     if prices is None:
         return 0.0
@@ -306,6 +349,9 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
         and prompt_tokens > _MINIMAX_M3_LONG_CONTEXT_THRESHOLD
     ):
         prices = _MINIMAX_M3_LONG_CONTEXT_PRICING
+    long_context = _CHEAPERINFERENCE_LONG_CONTEXT_PRICING.get(pricing_key)
+    if long_context is not None and prompt_tokens > long_context[0]:
+        prices = long_context[1]
     input_cost = (prompt_tokens / 1_000_000) * prices[0]
     output_cost = (completion_tokens / 1_000_000) * prices[1]
     return input_cost + output_cost
@@ -1209,23 +1255,13 @@ class CloudEngine(InferenceEngine):
             )
         # Strip the "cheaperinference/" prefix to get the gateway's model ID.
         actual_model = model.removeprefix("cheaperinference/")
-        create_kwargs: Dict[str, Any] = {
-            "model": actual_model,
-            "messages": messages_to_dicts(messages),
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        # Cheaper Inference is OpenAI-compatible: response_format, tools and
-        # tool_choice all pass straight through.
-        response_format = kwargs.pop("response_format", None)
-        if response_format is not None:
-            create_kwargs["response_format"] = response_format
-        tools = kwargs.pop("tools", None)
-        if tools:
-            create_kwargs["tools"] = tools
-        tool_choice = kwargs.pop("tool_choice", None)
-        if tool_choice is not None:
-            create_kwargs["tool_choice"] = tool_choice
+        create_kwargs = _cheaperinference_request_kwargs(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
         t0 = time.monotonic()
         resp = _chat_completion_with_temperature_retry(
             self._cheaperinference_client, create_kwargs
@@ -1833,21 +1869,14 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[str]:
         if self._cheaperinference_client is None:
             raise EngineConnectionError("Cheaper Inference client not available")
-        actual_model = model.removeprefix("cheaperinference/")
-        create_kwargs: Dict[str, Any] = {
-            "model": actual_model,
-            "messages": messages_to_dicts(messages),
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "stream": True,
-        }
-        # Forward tools / tool_choice (Cheaper Inference is OpenAI-compatible).
-        tools = kwargs.pop("tools", None)
-        if tools:
-            create_kwargs["tools"] = tools
-        tool_choice = kwargs.pop("tool_choice", None)
-        if tool_choice is not None:
-            create_kwargs["tool_choice"] = tool_choice
+        create_kwargs = _cheaperinference_request_kwargs(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        create_kwargs["stream"] = True
         resp = _chat_completion_with_temperature_retry(
             self._cheaperinference_client, create_kwargs
         )
@@ -1966,14 +1995,14 @@ class CloudEngine(InferenceEngine):
             client = self._cheaperinference_client
             if client is None:
                 raise EngineConnectionError("Cheaper Inference client not available")
-            create_kwargs = {
-                "model": model.removeprefix("cheaperinference/"),
-                "messages": messages_to_dicts(messages),
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": True,
+            create_kwargs = _cheaperinference_request_kwargs(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 **kwargs,
-            }
+            )
+            create_kwargs["stream"] = True
         elif _is_minimax_model(model):
             client = self._minimax_client
             if client is None:

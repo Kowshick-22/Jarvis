@@ -14,6 +14,8 @@ from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine.cloud import _CHEAPERINFERENCE_POPULAR, CloudEngine
 
+pytestmark = [pytest.mark.live, pytest.mark.cloud]
+
 _CHEAPERINFERENCE_KEY = os.environ.get("CHEAPER_INFERENCE_API_KEY", "")
 _skip_no_key = pytest.mark.skipif(
     not _CHEAPERINFERENCE_KEY,
