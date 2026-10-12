@@ -38,6 +38,14 @@ def _terminal_safe_text(value: object) -> str:
 class VoiceSession:
     """Cache healthy speech backends for one interactive chat session."""
 
+    def get_stt_language(self) -> Optional[str]:
+        """Return the configured speech language (e.g. 'pt'), or None to auto-detect."""
+        from openjarvis.core.config import load_config
+
+        config = self._config if self._config is not None else load_config()
+        speech = getattr(config, "speech", None)
+        return getattr(speech, "language", None) or None
+
     def __init__(self, config: object | None = None) -> None:
         self._config = config
         self._stt_resolved = False
@@ -152,7 +160,11 @@ def record_voice(
 
     console.print("[dim]Transcribing…[/dim]")
     try:
-        result = backend.transcribe(audio_bytes, format="wav")
+        result = backend.transcribe(
+            audio_bytes,
+            format="wav",
+            language=active_session.get_stt_language(),
+        )
         text = result.text.strip()
         if text:
             console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
