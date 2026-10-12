@@ -13,6 +13,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Literal
+from urllib.parse import urlparse
 
 from openjarvis.core.credentials import TOOL_CREDENTIALS
 
@@ -58,6 +59,10 @@ API_KEY_ENV_VARS = {
         {"cartesia", "text_to_speech"},
     ),
     "DEEPSEEK_API_KEY": ("DeepSeek cloud inference", {"deepseek"}),
+    "FXMACRODATA_API_KEY": (
+        "FXMacroData macro and FX data lookup",
+        {"fx_macro_data", "fxmacrodata"},
+    ),
     "GEMINI_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "GOOGLE_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "MINIMAX_API_KEY": ("MiniMax cloud inference", {"minimax"}),
@@ -70,6 +75,7 @@ API_KEY_ENV_VARS = {
     "TAVILY_API_KEY": ("Tavily web search", {"tavily", "web_search"}),
     "YOUDOTCOM_API_KEY": ("You.com web search", {"youcom", "web_search"}),
     "SERPLY_API_KEY": ("Serply web search", {"serply", "web_search"}),
+    "FIRECRAWL_API_KEY": ("Firecrawl web search", {"firecrawl", "web_search"}),
 }
 
 CHANNEL_SECRET_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -217,6 +223,7 @@ BROWSER_TOOLS = {
 }
 GENERIC_NETWORK_TOOLS = {"http_request"}
 WEATHER_TOOLS = {"get_weather"}
+MARKET_DATA_TOOLS = {"fx_macro_data"}
 CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
 CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
@@ -228,12 +235,15 @@ EXTERNAL_TOOL_SURFACES = (
     | BROWSER_TOOLS
     | GENERIC_NETWORK_TOOLS
     | WEATHER_TOOLS
+    | MARKET_DATA_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
 )
 # Narrower cloud inference / media API key surfaces (not browser-only egress).
-CLOUD_API_SURFACES = CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS | WEATHER_TOOLS
+CLOUD_API_SURFACES = (
+    CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS | WEATHER_TOOLS | MARKET_DATA_TOOLS
+)
 OUTBOUND_TOOL_SURFACES = EXTERNAL_TOOL_SURFACES
 LOCAL_ACCESS_TOOLS = {
     "apply_patch",
@@ -953,11 +963,15 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
 
     if tools & WEB_SEARCH_TOOLS:
         destination = _web_search_destination()
+        data = "user or agent search query"
+        if destination.startswith("Firecrawl"):
+            # URL queries are scraped by Firecrawl too, not fetched locally.
+            data += " and URL lookups"
         builder.add(
             finding_id="web-search-tool-configured",
             status="warn",
             title="Web search tool is configured",
-            potential_data_path=(f"user or agent search query -> {destination}"),
+            potential_data_path=(f"{data} -> {destination}"),
             evidence=(
                 f"configured tool(s) = {_format_tools(tools & WEB_SEARCH_TOOLS)}"
             ),
@@ -1005,6 +1019,23 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
             recommendation=(
                 "Avoid sending sensitive or precise locations unless the external "
                 "weather lookup is intentional."
+            ),
+        )
+
+    if tools & MARKET_DATA_TOOLS:
+        builder.add(
+            finding_id="market-data-tool-configured",
+            status="warn",
+            title="External market data lookup tool is configured",
+            potential_data_path=(
+                "currency, indicator and date arguments -> FXMacroData API"
+            ),
+            evidence=(
+                f"configured tool(s) = {_format_tools(tools & MARKET_DATA_TOOLS)}"
+            ),
+            recommendation=(
+                "Only currency codes, indicator names and dates leave the machine; "
+                "keep the tool disabled if no external lookup is wanted."
             ),
         )
 
@@ -1077,6 +1108,14 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
         )
 
 
+def _firecrawl_self_hosted_url() -> str | None:
+    """Return ``FIRECRAWL_API_URL`` when it points away from the hosted API."""
+    api_url = (os.environ.get("FIRECRAWL_API_URL") or "").strip().rstrip("/")
+    if api_url and api_url != "https://api.firecrawl.dev":
+        return api_url
+    return None
+
+
 def _web_search_destination() -> str:
     """Name the service ``web_search`` sends queries to, from env keys alone.
 
@@ -1086,7 +1125,7 @@ def _web_search_destination() -> str:
     source of truth; ``test_data_boundary_audit`` asserts the two agree.
     """
     engine = (os.environ.get("OPENJARVIS_WEB_SEARCH_ENGINE") or "auto").strip().lower()
-    if engine not in {"auto", "youcom", "tavily", "duckduckgo", "serply"}:
+    if engine not in {"auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl"}:
         engine = "auto"
     if engine == "auto":
         if os.environ.get("TAVILY_API_KEY"):
@@ -1095,6 +1134,10 @@ def _web_search_destination() -> str:
             engine = "youcom"
         elif os.environ.get("SERPLY_API_KEY"):
             engine = "serply"
+        elif (os.environ.get("FIRECRAWL_API_KEY") or "").strip() or (
+            _firecrawl_self_hosted_url()
+        ):
+            engine = "firecrawl"
         else:
             engine = "youcom"
 
@@ -1107,6 +1150,16 @@ def _web_search_destination() -> str:
         if location:
             return f"Serply web search API (Google SERP, region {location})"
         return "Serply web search API (Google SERP)"
+    if engine == "firecrawl":
+        api_url = _firecrawl_self_hosted_url()
+        if api_url:
+            # Name the host only: a self-hosted URL can carry credentials.
+            host = urlparse(api_url).hostname or "custom URL"
+            return (
+                f"Firecrawl search API (self-hosted at {host}; search queries go "
+                "on to its configured search backend)"
+            )
+        return "Firecrawl search API"
     tier = "keyed" if os.environ.get("YOUDOTCOM_API_KEY") else "keyless free tier"
     return f"You.com web search API ({tier})"
 
