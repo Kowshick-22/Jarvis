@@ -59,6 +59,13 @@ class VoiceSession:
             self._stt_resolved = True
         return self._stt_backend
 
+    def get_stt_language(self) -> Optional[str]:
+        """Return the configured ``speech.language``, or None to auto-detect."""
+        from openjarvis.core.config import load_config
+
+        config = self._config if self._config is not None else load_config()
+        return (getattr(config.speech, "language", "") or "").strip() or None
+
     def get_tts_backend(self) -> Any:
         """Return a cached healthy TTS backend, falling through once per key."""
         if self._tts_backend is not None:
@@ -196,7 +203,10 @@ def listen_for_wake_word(
     """
     from openjarvis.speech.voice_io import record_until_silence
 
-    backend = session.get_stt_backend()
+    try:
+        backend = session.get_stt_backend()
+    except KeyboardInterrupt:
+        return VOICE_EXIT
     if backend is None:
         # record_voice reports the missing backend and returns VOICE_EXIT.
         return record_voice(console, session)
@@ -218,7 +228,11 @@ def listen_for_wake_word(
             continue
 
         try:
-            text = backend.transcribe(audio_bytes, format="wav").text.strip()
+            text = backend.transcribe(
+                audio_bytes, format="wav", language=session.get_stt_language()
+            ).text.strip()
+        except KeyboardInterrupt:
+            return VOICE_EXIT
         except Exception as exc:
             console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
             continue
@@ -226,7 +240,10 @@ def listen_for_wake_word(
         command = match_wake_word(text, wake_word)
         if command is None:
             continue
-        _play_chime(chime)
+        try:
+            _play_chime(chime)
+        except KeyboardInterrupt:
+            return VOICE_EXIT
         if command:
             console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
             return command
@@ -268,13 +285,17 @@ def record_voice(
 
     console.print("[dim]Transcribing…[/dim]")
     try:
-        result = backend.transcribe(audio_bytes, format="wav")
+        result = backend.transcribe(
+            audio_bytes, format="wav", language=active_session.get_stt_language()
+        )
         text = result.text.strip()
         if text:
             console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
             return text
         console.print("[dim]Nothing heard — try again.[/dim]")
         return None
+    except KeyboardInterrupt:
+        return VOICE_EXIT
     except Exception as exc:
         console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
         return None

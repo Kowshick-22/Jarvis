@@ -18,6 +18,7 @@ from openjarvis.cli._voice_chat import (
     VoiceSession,
     listen_for_wake_word,
     load_wake_chime,
+    match_wake_word,
     read_voice_input,
     speak,
 )
@@ -136,6 +137,11 @@ def chat(
     if wake_word is None and voice_mode:
         wake_word = config.speech.wake_word
     wake_word = (wake_word or "").strip()
+    if wake_word and match_wake_word(wake_word, wake_word) is None:
+        raise click.BadParameter(
+            "must contain a spoken word, not only punctuation",
+            param_hint="--wake-word / speech.wake_word",
+        )
     if wake_word:
         voice_mode = True
     bus = EventBus(record_history=False)

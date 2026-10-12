@@ -152,6 +152,83 @@ class TestChatCommand:
 
 
 class TestWakeWord:
+    @pytest.mark.parametrize("language", ["pt", ""])
+    def test_wake_word_and_followup_use_configured_language(self, language):
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="Computer."),
+            SimpleNamespace(text="olá"),
+        ]
+        config = JarvisConfig()
+        config.speech.language = language
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend", return_value=backend
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence", return_value=b"wav"
+            ),
+        ):
+            assert (
+                listen_for_wake_word(MagicMock(), VoiceSession(config), "computer")
+                == "olá"
+            )
+        assert backend.transcribe.call_args_list == [
+            mock.call(b"wav", format="wav", language=language or None),
+            mock.call(b"wav", format="wav", language=language or None),
+        ]
+
+    @pytest.mark.parametrize(
+        "phase", ["discovery", "transcription", "chime", "followup"]
+    )
+    def test_ctrl_c_exits_during_every_wake_word_phase(self, phase):
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="Computer, status")
+        if phase == "transcription":
+            backend.transcribe.side_effect = KeyboardInterrupt
+        elif phase == "followup":
+            backend.transcribe.side_effect = [
+                SimpleNamespace(text="Computer."),
+                KeyboardInterrupt,
+            ]
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                side_effect=KeyboardInterrupt if phase == "discovery" else None,
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence", return_value=b"wav"
+            ),
+            patch(
+                "openjarvis.speech.voice_io.play_wav",
+                side_effect=KeyboardInterrupt if phase == "chime" else None,
+            ),
+        ):
+            assert (
+                listen_for_wake_word(
+                    MagicMock(),
+                    VoiceSession(JarvisConfig()),
+                    "computer",
+                    chime=b"chirp",
+                )
+                is VOICE_EXIT
+            )
+
+    @pytest.mark.parametrize("configured", [False, True])
+    def test_invalid_wake_word_fails_before_starting_voice(self, configured):
+        config = JarvisConfig()
+        config.speech.wake_word = "!!!" if configured else ""
+        args = ["--voice"] if configured else ["--wake-word", "!!!"]
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.cli.chat_cmd.listen_for_wake_word") as listen,
+        ):
+            result = CliRunner().invoke(chat, args)
+        assert result.exit_code == 2
+        assert "must contain a spoken word" in result.output
+        listen.assert_not_called()
+
     @pytest.mark.parametrize(
         ("text", "expected"),
         [
