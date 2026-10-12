@@ -14,7 +14,9 @@ public sealed partial class ChatPage : Page
     private readonly ObservableCollection<ToolCallInfo> _tools = [];
     private CancellationTokenSource? _sendCts;
     private Conversation? _active;
+    private Conversation? _chatBeforeDelete;
     private bool _suppressModelChange;
+    private bool _suppressListSelection;
 
     public ChatPage()
     {
@@ -252,11 +254,102 @@ public sealed partial class ChatPage : Page
 
     private void ConversationList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressListSelection)
+        {
+            return;
+        }
+
         if (ConversationList.SelectedItem is Conversation conversation)
         {
             App.Services.Conversations.Select(conversation);
             _active = conversation;
             ReloadMessages();
+        }
+    }
+
+    private void DeleteChat_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _chatBeforeDelete = _active;
+    }
+
+    private async void DeleteChat_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id })
+        {
+            return;
+        }
+
+        var conversation = App.Services.Conversations.Items.FirstOrDefault(c => c.Id == id);
+        if (conversation is null)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Delete chat?",
+            Content = $"\"{conversation.Title}\" will be removed from this device.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+            RequestedTheme = App.Services.Settings.CurrentElementTheme()
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            RestoreChatIfDeleteCancelled(id);
+            return;
+        }
+
+        var deletingActive = _active?.Id == conversation.Id;
+        if (deletingActive)
+        {
+            _sendCts?.Cancel();
+        }
+
+        _suppressListSelection = true;
+        try
+        {
+            App.Services.Conversations.Delete(conversation);
+            if (!deletingActive)
+            {
+                return;
+            }
+
+            _active = App.Services.Conversations.Active
+                ?? App.Services.Conversations.NewConversation(
+                    SelectedModelId() ?? App.Services.Settings.Current.SelectedModel);
+            ConversationList.SelectedItem = _active;
+            ReloadMessages();
+            _tools.Clear();
+        }
+        finally
+        {
+            _suppressListSelection = false;
+        }
+    }
+
+    private void RestoreChatIfDeleteCancelled(string deletedId)
+    {
+        if (_chatBeforeDelete is null ||
+            _chatBeforeDelete.Id == deletedId ||
+            _active?.Id != deletedId ||
+            !App.Services.Conversations.Items.Contains(_chatBeforeDelete))
+        {
+            return;
+        }
+
+        _suppressListSelection = true;
+        try
+        {
+            ConversationList.SelectedItem = _chatBeforeDelete;
+            App.Services.Conversations.Select(_chatBeforeDelete);
+            _active = _chatBeforeDelete;
+            ReloadMessages();
+        }
+        finally
+        {
+            _suppressListSelection = false;
         }
     }
 
@@ -354,21 +447,22 @@ public sealed partial class ChatPage : Page
             return;
         }
 
+        var active = _active;
         var text = PromptBox.Text.Trim();
         PromptBox.Text = "";
         var user = new ChatMessage { Role = "user", Content = text };
         var assistant = new ChatMessage { Role = "assistant", Content = "" };
-        _active.Messages.Add(user);
-        _active.Messages.Add(assistant);
-        if (_active.Title == "New chat")
+        active.Messages.Add(user);
+        active.Messages.Add(assistant);
+        if (active.Title == "New chat")
         {
-            _active.Title = text.Length > 42 ? text[..42] : text;
+            active.Title = text.Length > 42 ? text[..42] : text;
         }
 
         _messages.Add(user);
         _messages.Add(assistant);
         _tools.Clear();
-        App.Services.Conversations.Touch(_active);
+        App.Services.Conversations.Touch(active);
 
         _sendCts?.Cancel();
         _sendCts = new CancellationTokenSource();
@@ -381,7 +475,7 @@ public sealed partial class ChatPage : Page
             stream = true,
             temperature = App.Services.Settings.Current.Temperature,
             max_tokens = App.Services.Settings.Current.MaxTokens,
-            messages = _active.Messages
+            messages = active.Messages
                 .Where(m => m != assistant)
                 .Select(m => new { role = m.Role, content = m.Content })
                 .ToList()
@@ -410,7 +504,10 @@ public sealed partial class ChatPage : Page
         {
             SendButton.IsEnabled = true;
             CancelButton.IsEnabled = false;
-            App.Services.Conversations.Touch(_active);
+            if (App.Services.Conversations.Items.Contains(active))
+            {
+                App.Services.Conversations.Touch(active);
+            }
         }
     }
 

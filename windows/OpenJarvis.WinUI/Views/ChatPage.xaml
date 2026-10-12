@@ -19,6 +19,7 @@
                 x:Name="NewChatButton"
                 Content="New chat"
                 HorizontalAlignment="Stretch"
+                MinHeight="40"
                 Click="NewChat_Click"
                 AccessKey="N"
                 AutomationProperties.Name="Start a new chat"
@@ -30,10 +31,34 @@
                 AutomationProperties.Name="Conversation history">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:Conversation">
-                        <StackPanel Padding="4">
-                            <TextBlock Text="{x:Bind Title}" TextWrapping="NoWrap" />
-                            <TextBlock Text="{x:Bind Model}" Style="{StaticResource CaptionTextBlockStyle}" />
-                        </StackPanel>
+                        <Grid Padding="4,4,0,4" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Text="{x:Bind Model}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button
+                                Grid.Column="1"
+                                MinWidth="36"
+                                MinHeight="36"
+                                Padding="8"
+                                VerticalAlignment="Center"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                PointerPressed="DeleteChat_PointerPressed"
+                                Click="DeleteChat_Click"
+                                Tag="{x:Bind Id}"
+                                ToolTipService.ToolTip="Delete chat"
+                                AutomationProperties.Name="Delete chat">
+                                <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                            </Button>
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
@@ -117,6 +142,8 @@
                     x:Name="SendButton"
                     Grid.Column="1"
                     Content="Send"
+                    MinWidth="88"
+                    MinHeight="40"
                     Margin="8,24,0,0"
                     Click="Send_Click"
                     AccessKey="S"
@@ -125,6 +152,8 @@
                     x:Name="CancelButton"
                     Grid.Column="2"
                     Content="Stop"
+                    MinWidth="88"
+                    MinHeight="40"
                     Margin="8,24,0,0"
                     Click="Cancel_Click"
                     IsEnabled="False"

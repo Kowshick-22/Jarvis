@@ -85,4 +85,31 @@ public sealed class ConversationStore
 
         Save();
     }
+
+    public void Delete(Conversation conversation)
+    {
+        var index = -1;
+        for (var i = 0; i < Items.Count; i++)
+        {
+            if (Items[i].Id == conversation.Id)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            return;
+        }
+
+        var removingActive = Active?.Id == conversation.Id;
+        Items.RemoveAt(index);
+        if (removingActive)
+        {
+            Active = Items.Count == 0 ? null : Items[Math.Min(index, Items.Count - 1)];
+        }
+
+        Save();
+    }
 }
