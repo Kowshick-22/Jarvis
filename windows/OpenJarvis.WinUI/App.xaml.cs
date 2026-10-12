@@ -10,12 +10,15 @@ public partial class App : Application
 
     public App()
     {
-        var earlySettings = new SettingsStore();
-        earlySettings.Load();
-        var theme = SettingsStore.ApplicationThemeOrNull(earlySettings.Current.Theme);
-        if (theme is { } requested)
+        try
         {
-            RequestedTheme = requested;
+            var earlySettings = new SettingsStore();
+            earlySettings.Load();
+            RequestedTheme = SettingsStore.ResolveApplicationTheme(earlySettings.Current.Theme);
+        }
+        catch
+        {
+            // Theme application is best-effort before XAML loads.
         }
 
         InitializeComponent();
@@ -29,8 +32,10 @@ public partial class App : Application
         Services = AppServices.Create();
         _window = new MainWindow();
         MainWindowInstance = _window;
-        Services.Settings.ApplyWindowTheme(_window);
         _window.Activate();
+        // WinUI resets window chrome during activation. Reapply after the window is shown.
+        Services.Settings.ApplyWindowTheme(_window);
+        Services.Settings.WatchSystemTheme(_window);
     }
 
     private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

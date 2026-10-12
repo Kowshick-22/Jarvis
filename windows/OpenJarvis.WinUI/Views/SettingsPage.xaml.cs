@@ -28,6 +28,7 @@ public sealed partial class SettingsPage : Page
         }
 
         ThemeBox.SelectedIndex = ThemeBox.SelectedIndex < 0 ? 0 : ThemeBox.SelectedIndex;
+        _themeReady = true;
 
         var info = await App.Services.Api.GetInfoAsync(CancellationToken.None);
         if (info?.Hardware is { } hw)
@@ -50,12 +51,22 @@ public sealed partial class SettingsPage : Page
             .ToList();
     }
 
+    private bool _themeReady;
+
     private void ThemeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ThemeBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        if (!_themeReady)
+        {
+            return;
+        }
+
+        if (ThemeBox.SelectedItem is ComboBoxItem item &&
+            item.Tag is string tag &&
+            tag != App.Services.Settings.Current.Theme)
         {
             App.Services.Settings.Current.Theme = tag;
             App.Services.Settings.ApplyWindowTheme();
+            App.Services.Settings.Persist();
         }
     }
 

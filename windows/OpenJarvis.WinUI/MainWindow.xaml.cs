@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         App.Services.Settings.ApplyWindowTheme(this);
+        Activated += OnActivated;
         TrySetIcon();
         App.Services.Supervisor.StatusChanged += OnStatusChanged;
         App.Services.Supervisor.Start();
@@ -26,6 +27,19 @@ public sealed partial class MainWindow : Window
 
         _ = CheckUpdatesAsync();
         Closed += (_, _) => App.Services.Supervisor.Dispose();
+    }
+
+    private bool _reappliedThemeAfterActivation;
+
+    private void OnActivated(object sender, WindowActivatedEventArgs e)
+    {
+        if (_reappliedThemeAfterActivation || e.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            return;
+        }
+
+        _reappliedThemeAfterActivation = true;
+        DispatcherQueue.TryEnqueue(() => App.Services.Settings.ApplyWindowTheme(this));
     }
 
     private void TrySetIcon()
@@ -102,7 +116,8 @@ public sealed partial class MainWindow : Window
                     Content = $"OpenJarvis {update.Version} is available.\n{update.Notes}",
                     PrimaryButtonText = "Download",
                     CloseButtonText = "Later",
-                    XamlRoot = Content.XamlRoot
+                    XamlRoot = Content.XamlRoot,
+                    RequestedTheme = App.Services.Settings.CurrentElementTheme()
                 };
                 if (await dialog.ShowAsync() == ContentDialogResult.Primary)
                 {
