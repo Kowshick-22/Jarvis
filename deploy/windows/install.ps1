@@ -16,7 +16,7 @@
       4. Install uv (https://astral.sh/uv) if absent.
       5. Clone the OpenJarvis repository to $env:LOCALAPPDATA\OpenJarvis
          (override with $env:OPENJARVIS_HOME).
-      5b. Install the MSVC build tools if absent - the mandatory
+      5b. Check for MSVC build tools and explain how to install them if absent - the mandatory
          openjarvis-rust extension is compiled from source in step 6.
       6. Run `uv sync --extra desktop --group desktop-native` so the FastAPI
          server, speech backend, and native extension are importable.
@@ -150,26 +150,24 @@ Write-Ok "Windows build $build"
 # ---------------------------------------------------------------------------
 
 function Get-PythonCommand {
-    # Prefer `python` (the Windows store / python.org default), then
-    # `python3` (our cross-platform helper convention). `python3` must NOT
-    # be probed first on Windows: %LOCALAPPDATA%\Microsoft\WindowsApps ships
-    # 0-byte App Execution Alias stubs for both names, and a python.org
-    # per-user install only ever creates `python.exe`. So on a machine with
-    # a perfectly good Python, `Get-Command python3` still resolves to the
-    # stub, which prints "Python was not found; run without arguments to
-    # install from the Microsoft Store" to stderr and exits non-zero -
-    # aborting the installer at the version check below (#1059).
+    # A Store alias can point to installed Python or to the Store placeholder;
+    # its zero-byte file size does not distinguish them. Probe with an argument
+    # (which never opens the Store) and continue past failed/shadowing aliases.
+    $seen = @{}
     foreach ($name in @('python', 'python3')) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if (-not $cmd) { continue }
-        # A 0-byte reparse point is the Store alias, not an interpreter.
-        # Skip it rather than handing back a path that cannot execute.
-        $item = Get-Item -LiteralPath $cmd.Source -ErrorAction SilentlyContinue
-        if ($item -and $item.Length -eq 0) {
-            Write-Warn2 "  Ignoring Microsoft Store alias stub at $($cmd.Source)"
-            continue
+        foreach ($cmd in @(Get-Command $name -All -CommandType Application -ErrorAction SilentlyContinue)) {
+            if (-not $cmd.Source -or $seen.ContainsKey($cmd.Source)) { continue }
+            $seen[$cmd.Source] = $true
+            try {
+                $version = & $cmd.Source --version 2>$null
+                if ($LASTEXITCODE -eq 0 -and (($version -join ' ') -match '^Python \d+\.\d+\.\d+')) {
+                    return $cmd.Source
+                }
+            } catch {
+                # PS 5.1 can turn a native stderr message into an exception.
+            }
+            Write-Warn2 "  Ignoring Python command that did not run at $($cmd.Source)"
         }
-        return $cmd.Source
     }
     return $null
 }
@@ -178,7 +176,9 @@ Write-Info "Checking Python (3.10 - 3.13)..."
 $pythonExe = Get-PythonCommand
 if (-not $pythonExe) {
     Write-Info "Python not on PATH - attempting auto-install via winget..."
-    $pythonExe = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
+    $null = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
+    # Refreshing PATH can still leave a failed Store alias ahead of python.org.
+    $pythonExe = Get-PythonCommand
     if (-not $pythonExe) {
         Write-Fail @"
 Python 3.10 - 3.13 not found and auto-install via winget failed.
@@ -317,15 +317,28 @@ if (Test-Path (Join-Path $srcDir '.git')) {
 # `error: linker 'link.exe' not found`. The x86_64-pc-windows-msvc target
 # needs the MSVC linker, which no earlier step installs (#1060).
 function Test-MsvcLinker {
-    if (Get-Command link.exe -ErrorAction SilentlyContinue) { return $true }
+    # Git/MSYS can put an unrelated GNU link.exe on PATH. Only Microsoft's
+    # linker satisfies the native extension's MSVC prerequisite.
+    foreach ($cmd in @(Get-Command link.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        $item = Get-Item -LiteralPath $cmd.Source -ErrorAction SilentlyContinue
+        if ($item -and $item.VersionInfo.CompanyName -match '^Microsoft' -and
+            $item.VersionInfo.OriginalFilename -ieq 'link.exe') {
+            return $true
+        }
+    }
     # link.exe is only on PATH inside a Developer Command Prompt, so probe
     # the install root via vswhere (shipped with any VS 2017+ installer).
+    if (-not ${env:ProgramFiles(x86)}) { return $false }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (-not (Test-Path -LiteralPath $vswhere)) { return $false }
     $found = & $vswhere -latest -products * `
         -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-        -property installationPath 2>$null
-    return [bool]$found
+        -find 'VC\Tools\MSVC\**\bin\Host*\*\link.exe' 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    foreach ($linker in $found) {
+        if (Test-Path -LiteralPath $linker -PathType Leaf) { return $true }
+    }
+    return $false
 }
 
 Write-Info "Checking MSVC build tools (needed to compile the native extension)..."
