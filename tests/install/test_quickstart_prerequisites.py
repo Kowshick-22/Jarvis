@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,10 @@ def preflight(tmp_path):
     repo = tmp_path / "repo"
     (repo / "scripts").mkdir(parents=True)
     (repo / "frontend").mkdir()
+    (repo / "rust").mkdir()
+    (repo / "rust" / "rust-toolchain.toml").write_text(
+        '[toolchain]\nchannel = "1.89.0"\n'
+    )
     (repo / "frontend" / "package.json").write_text(
         json.dumps({"engines": {"node": ">=22.22"}, "packageManager": "npm@11.19.0"})
     )
@@ -51,14 +56,16 @@ def preflight(tmp_path):
     script.write_text(_SCRIPT.read_text().split("# ── 4. Check / install Ollama")[0])
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "python3").symlink_to(sys.executable)
+    # Preflight uses only the standard library; avoid unrelated site hooks in
+    # the developer's test environment on each subprocess invocation.
+    _executable(bindir / "python3", f'exec {shlex.quote(sys.executable)} -S "$@"\n')
     _executable(bindir / "uv", "echo 'uv 0.13.0'\n")
     _executable(bindir / "node", 'echo "v$TEST_NODE_VERSION"\n')
     for command in ("rustc", "cargo"):
         _executable(
             bindir / command,
             'if [ "$TEST_RUST_BROKEN" = 1 ]; then exit 1; fi\n'
-            f"echo '{command} 1.89.0'\n",
+            f'echo "{command} $TEST_RUST_VERSION"\n',
         )
     _executable(
         bindir / "npm",
@@ -96,6 +103,7 @@ def preflight(tmp_path):
             "TEST_NPM_VERSION_FILE": str(version_file),
             "TEST_COMMAND_LOG": str(log),
             "TEST_RUST_BROKEN": "0",
+            "TEST_RUST_VERSION": "1.89.0",
             "TEST_NPM_UPGRADE_FAIL": "0",
             "TEST_NPM_NO_UPDATE": "0",
             **settings,
@@ -105,7 +113,7 @@ def preflight(tmp_path):
             env=env,
             text=True,
             capture_output=True,
-            timeout=15,
+            timeout=45,
         )
         return result, log.read_text() if log.exists() else ""
 
@@ -156,6 +164,12 @@ def test_broken_rustup_shims_trigger_toolchain_install(preflight):
     assert commands == "rustup\n"
 
 
+def test_working_but_old_rust_is_upgraded_before_native_build(preflight):
+    result, commands = preflight(TEST_RUST_VERSION="1.88.0")
+    assert result.returncode == 0, result.stderr
+    assert commands == "rustup\n"
+
+
 def test_script_parses_with_bash():
     result = subprocess.run(
         [shutil.which("bash") or "/bin/bash", "-n", str(_SCRIPT)],
@@ -163,6 +177,34 @@ def test_script_parses_with_bash():
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_native_build_runs_under_the_pinned_workspace_toolchain(tmp_path):
+    (tmp_path / "rust").mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    calls = tmp_path / "uv-calls"
+    _executable(bindir / "uv", f'printf "%s\\n" "$PWD" "$*" >> "{calls}"\n')
+    block = _SCRIPT.read_text().split("# ── 7b. Build Rust extension")[1]
+    block = block.split("# ── 8. Install frontend dependencies")[0]
+    # The section heading's remaining decoration belongs to its comment.
+    block = block.split("\n", 1)[1]
+    result = subprocess.run(
+        [
+            shutil.which("bash") or "/bin/bash",
+            "-c",
+            "set -euo pipefail\ninfo() { :; }\nok() { :; }\n" + block,
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{bindir}:/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls.read_text().splitlines() == [
+        str(tmp_path / "rust"),
+        "run maturin develop -m crates/openjarvis-python/Cargo.toml --quiet",
+    ]
 
 
 @pytest.mark.parametrize(

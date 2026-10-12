@@ -99,6 +99,25 @@ PY
 )
 read -r NODE_MIN_VERSION NPM_TARGET_VERSION <<< "$FRONTEND_VERSIONS"
 
+RUST_TOOLCHAIN=$("$PY_CMD" - "$REPO_ROOT/rust/rust-toolchain.toml" <<'PY'
+import re
+import sys
+
+with open(sys.argv[1]) as handle:
+    match = re.search(r'^channel\s*=\s*"(\d+\.\d+(?:\.\d+)?)"', handle.read(), re.M)
+if match is None:
+    sys.exit("The quickstart requires a versioned Rust toolchain pin.")
+print(match.group(1))
+PY
+)
+
+rust_toolchain_ready() {
+  command -v rustc &>/dev/null && command -v cargo &>/dev/null || return 1
+  RUST_VERSION=$(cd "$REPO_ROOT/rust" && rustc --version 2>/dev/null) || return 1
+  (cd "$REPO_ROOT/rust" && cargo --version) &>/dev/null || return 1
+  version_at_least "$(echo "$RUST_VERSION" | cut -d' ' -f2)" "$RUST_TOOLCHAIN"
+}
+
 node_toolchain_supported() {
   "$PY_CMD" - "$1" "$REPO_ROOT/frontend/package-lock.json" <<'PY'
 import json
@@ -140,15 +159,19 @@ fi
 # The Rust extension (step 7b) is mandatory: memory/storage backends fail
 # without the compiled openjarvis_rust module.
 info "Checking Rust toolchain..."
-if command -v rustc &>/dev/null && command -v cargo &>/dev/null \
-    && RUST_VERSION=$(rustc --version 2>/dev/null) && cargo --version &>/dev/null; then
+if rust_toolchain_ready; then
   ok "$RUST_VERSION"
 else
-  warn "A working Rust toolchain was not found — installing via rustup..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+  warn "Rust $RUST_TOOLCHAIN or newer was not found — installing the pinned toolchain..."
+  if command -v rustup &>/dev/null; then
+    rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+  else
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+  fi
   export PATH="$HOME/.cargo/bin:$PATH"
-  RUST_VERSION=$(rustc --version) && cargo --version &>/dev/null \
-    || fail "Rust installation did not provide working rustc/cargo commands."
+  rust_toolchain_ready \
+    || fail "Rust installation did not provide working rustc/cargo $RUST_TOOLCHAIN commands."
   ok "$RUST_VERSION"
 fi
 
@@ -248,8 +271,8 @@ ok "Python dependencies installed"
 
 # ── 7b. Build Rust extension ──────────────────────────────────────
 info "Building Rust extension..."
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
-  || uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+(cd rust && uv run maturin develop -m crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
+  || uv run maturin develop -m crates/openjarvis-python/Cargo.toml)
 ok "Rust extension built"
 
 # ── 8. Install frontend dependencies ────────────────────────────────
