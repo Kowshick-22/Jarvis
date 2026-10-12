@@ -25,7 +25,7 @@ class FileWriteTool(BaseTool):
         allowed_dirs: Optional[List[str]] = None,
     ) -> None:
         self._allowed_dirs = [
-            Path(d).resolve() for d in resolve_allowed_dirs(allowed_dirs)
+            Path(d).expanduser().resolve() for d in resolve_allowed_dirs(allowed_dirs)
         ]
 
     @property

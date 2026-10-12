@@ -481,6 +481,7 @@ class SystemBuilder:
             capability_policy=capability_policy,
             rate_limiter=rate_limiter,
             agent_id="system:mcp",
+            allowed_dirs=config.security.allowed_dirs,
         )
         for tool in internal_server.get_tools():
             self._inject_tool_deps(tool, engine, model, memory_backend, channel_backend)

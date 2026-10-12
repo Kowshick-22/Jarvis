@@ -355,8 +355,8 @@ def _build_tools(
             tools.append(tool_cls(channel=channel))
         elif name == "llm":
             tools.append(tool_cls(engine=engine, model=model_name))
-        elif name == "file_read":
-            tools.append(tool_cls())
+        elif name in {"file_read", "file_write"}:
+            tools.append(tool_cls(allowed_dirs=config.security.allowed_dirs))
         else:
             tools.append(tool_cls())
     return tools
