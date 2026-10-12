@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using OpenJarvis.WinUI.Models;
 using OpenJarvis.WinUI.Services;
 
@@ -13,10 +16,17 @@ public sealed partial class ChatPage : Page
     private readonly ObservableCollection<ChatMessage> _messages = [];
     private readonly ObservableCollection<ToolCallInfo> _tools = [];
     private CancellationTokenSource? _sendCts;
+    private const double DefaultSidebarWidth = 260;
+    private const double MinSidebarWidth = 200;
+    private const double MaxSidebarWidth = 560;
+
     private Conversation? _active;
     private Conversation? _chatBeforeDelete;
     private bool _suppressModelChange;
     private bool _suppressListSelection;
+    private bool _resizingSidebar;
+    private double _resizeStartWidth;
+    private double _resizeStartX;
 
     public ChatPage()
     {
@@ -26,6 +36,7 @@ public sealed partial class ChatPage : Page
         ToolList.ItemsSource = _tools;
         AgentBox.ItemsSource = AgentChoices.All;
         AgentBox.SelectedItem = App.Services.Settings.Current.SelectedAgent;
+        ApplySidebar(App.Services.Settings.Current.ChatSidebarCollapsed);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         App.Services.Supervisor.StatusChanged += OnBackendStatusChanged;
@@ -241,6 +252,168 @@ public sealed partial class ChatPage : Page
             string id => id,
             _ => null
         };
+    }
+
+    private void ToggleSidebar_Click(object sender, RoutedEventArgs e)
+    {
+        var collapsed = Sidebar.Visibility == Visibility.Visible;
+        ApplySidebar(collapsed);
+        App.Services.Settings.Current.ChatSidebarCollapsed = collapsed;
+        App.Services.Settings.Persist();
+    }
+
+    private void ApplySidebar(bool collapsed)
+    {
+        SidebarColumn.Width = collapsed ? new GridLength(0) : new GridLength(ClampSidebarWidth(SavedSidebarWidth()));
+        SidebarGapColumn.Width = collapsed ? new GridLength(0) : new GridLength(16);
+        Sidebar.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarSplitter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarSplitter.IsTabStop = !collapsed;
+        ToggleSidebarIcon.Glyph = collapsed ? "\uE127" : "\uE126";
+        var label = collapsed ? "Show chats" : "Hide chats";
+        ToolTipService.SetToolTip(ToggleSidebarButton, label);
+        AutomationProperties.SetName(
+            ToggleSidebarButton,
+            collapsed ? "Show conversation list" : "Hide conversation list");
+    }
+
+    private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_resizingSidebar || Sidebar.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        SidebarColumn.Width = new GridLength(ClampSidebarWidth(SavedSidebarWidth()));
+    }
+
+    private void SidebarSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (Sidebar.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        _resizingSidebar = true;
+        _resizeStartWidth = SidebarColumn.ActualWidth;
+        _resizeStartX = e.GetCurrentPoint(RootGrid).Position.X;
+        SidebarSplitter.CapturePointer(e.Pointer);
+        ShowSplitterActive();
+        e.Handled = true;
+    }
+
+    private void SidebarSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingSidebar)
+        {
+            return;
+        }
+
+        var x = e.GetCurrentPoint(RootGrid).Position.X;
+        SidebarColumn.Width = new GridLength(ClampSidebarWidth(_resizeStartWidth + (x - _resizeStartX)));
+        e.Handled = true;
+    }
+
+    private void SidebarSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingSidebar)
+        {
+            return;
+        }
+
+        FinishSidebarResize();
+        SidebarSplitter.ReleasePointerCapture(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void SidebarSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingSidebar)
+        {
+            return;
+        }
+
+        FinishSidebarResize();
+    }
+
+    private void SidebarSplitter_PointerEntered(object sender, PointerRoutedEventArgs e) =>
+        ShowSplitterActive();
+
+    private void SidebarSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingSidebar)
+        {
+            ShowSplitterIdle();
+        }
+    }
+
+    private void SidebarSplitter_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        var delta = e.Key switch
+        {
+            Windows.System.VirtualKey.Left => -16d,
+            Windows.System.VirtualKey.Right => 16d,
+            _ => 0d
+        };
+        if (delta == 0 || Sidebar.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        SidebarColumn.Width = new GridLength(ClampSidebarWidth(SidebarColumn.ActualWidth + delta));
+        PersistSidebarWidth();
+        e.Handled = true;
+    }
+
+    private void FinishSidebarResize()
+    {
+        _resizingSidebar = false;
+        PersistSidebarWidth();
+        ShowSplitterIdle();
+    }
+
+    private void PersistSidebarWidth()
+    {
+        App.Services.Settings.Current.ChatSidebarWidth = SidebarColumn.ActualWidth;
+        App.Services.Settings.Persist();
+    }
+
+    private double SavedSidebarWidth()
+    {
+        var saved = App.Services.Settings.Current.ChatSidebarWidth;
+        return saved >= MinSidebarWidth ? saved : DefaultSidebarWidth;
+    }
+
+    private double ClampSidebarWidth(double width)
+    {
+        var contentWidth = RootGrid.ActualWidth - RootGrid.Padding.Left - RootGrid.Padding.Right;
+        var max = contentWidth - 16 - 320;
+        if (contentWidth <= 0 || max < MinSidebarWidth)
+        {
+            max = MaxSidebarWidth;
+        }
+
+        return Math.Clamp(width, MinSidebarWidth, Math.Min(max, MaxSidebarWidth));
+    }
+
+    private void ShowSplitterActive()
+    {
+        SidebarSplitterBar.Opacity = 1;
+        if (Application.Current.Resources.TryGetValue("AccentFillColorDefaultBrush", out var accent) &&
+            accent is Brush accentBrush)
+        {
+            SidebarSplitterBar.Background = accentBrush;
+        }
+    }
+
+    private void ShowSplitterIdle()
+    {
+        SidebarSplitterBar.Opacity = 0.6;
+        if (Application.Current.Resources.TryGetValue("DividerStrokeColorDefaultBrush", out var divider) &&
+            divider is Brush dividerBrush)
+        {
+            SidebarSplitterBar.Background = dividerBrush;
+        }
     }
 
     private void NewChat_Click(object sender, RoutedEventArgs e)
@@ -600,5 +773,13 @@ public sealed partial class ChatPage : Page
         {
             // Non-JSON keepalive chunks are ignored.
         }
+    }
+}
+
+public sealed class SidebarResizeGrip : Grid
+{
+    public SidebarResizeGrip()
+    {
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
     }
 }

@@ -213,6 +213,8 @@ public sealed class AppSettings
     public int MaxTokens { get; set; } = 1024;
     public string SelectedModel { get; set; } = "Phi-4-mini-instruct";
     public string SelectedAgent { get; set; } = "simple";
+    public bool ChatSidebarCollapsed { get; set; }
+    public double ChatSidebarWidth { get; set; }
     public bool AllowCloud { get; set; }
     public bool SetupComplete { get; set; }
 }
