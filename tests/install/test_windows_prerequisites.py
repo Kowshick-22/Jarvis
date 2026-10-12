@@ -54,6 +54,11 @@ function Invoke-GoodPython {
 }
 function Invoke-BadPython {
     $global:Probes += 'bad'
+    if ($Case -in @('python-too-old', 'python-too-new')) {
+        $global:LASTEXITCODE = 0
+        if ($Case -eq 'python-too-old') { 'Python 2.7.18' } else { 'Python 3.14.0' }
+        return
+    }
     $global:LASTEXITCODE = 9009
     'Python was not found'
 }
@@ -68,7 +73,7 @@ function Get-Command {
         if ($Case -eq 'active-store-alias') {
             return [pscustomobject]@{Source='Invoke-GoodPython'}
         }
-        if ($Case -eq 'shadowed-python' -or
+        if ($Case -in @('shadowed-python', 'python-too-old', 'python-too-new') -or
             ($Case -eq 'winget-shadowed-python' -and $global:Installed)) {
             $bad = [pscustomobject]@{Source='Invoke-BadPython'}
             $good = [pscustomobject]@{Source='Invoke-GoodPython'}
@@ -107,7 +112,8 @@ function Test-Path {
 }
 ${env:ProgramFiles(x86)} = 'C:\Program Files (x86)'
 $pythonCases = @(
-    'active-store-alias', 'shadowed-python', 'failed-python-alias', 'no-python')
+    'active-store-alias', 'shadowed-python', 'failed-python-alias', 'no-python',
+    'python-too-old', 'python-too-new')
 if ($Case -eq 'winget-shadowed-python') {
     $pythonExe = Get-PythonCommand
     $bootstrap = $ast.EndBlock.Statements | Where-Object {
@@ -158,6 +164,13 @@ def test_installed_store_alias_is_not_rejected_for_zero_file_size(tmp_path):
 
 def test_probe_continues_past_a_shadowing_failed_python(tmp_path):
     result = _run_case(tmp_path, "shadowed-python")
+    assert result["selected"] == "Invoke-GoodPython"
+    assert result["probes"] == ["bad", "good"]
+
+
+@pytest.mark.parametrize("case", ["python-too-old", "python-too-new"])
+def test_supported_python_is_selected_after_an_unsupported_version(tmp_path, case):
+    result = _run_case(tmp_path, case)
     assert result["selected"] == "Invoke-GoodPython"
     assert result["probes"] == ["bad", "good"]
 

@@ -160,13 +160,17 @@ function Get-PythonCommand {
             $seen[$cmd.Source] = $true
             try {
                 $version = & $cmd.Source --version 2>$null
-                if ($LASTEXITCODE -eq 0 -and (($version -join ' ') -match '^Python \d+\.\d+\.\d+')) {
+                $match = [regex]::Match(($version -join ' '), '^Python (\d+)\.(\d+)\.\d+')
+                if ($LASTEXITCODE -eq 0 -and $match.Success -and
+                    [int]$match.Groups[1].Value -eq 3 -and
+                    [int]$match.Groups[2].Value -ge 10 -and
+                    [int]$match.Groups[2].Value -le 13) {
                     return $cmd.Source
                 }
             } catch {
                 # PS 5.1 can turn a native stderr message into an exception.
             }
-            Write-Warn2 "  Ignoring Python command that did not run at $($cmd.Source)"
+            Write-Warn2 "  Ignoring unavailable or unsupported Python at $($cmd.Source)"
         }
     }
     return $null
