@@ -185,10 +185,11 @@ def _registered_pid_alive(pid: int) -> bool:
 
 
 @contextmanager
-def _state_lock() -> Iterator[None]:
+def _state_lock(state_file: Path | None = None) -> Iterator[None]:
     """Serialize daemon bookkeeping across launching and supervised processes."""
-    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with _PID_FILE.with_suffix(".lock").open("a+b") as lock:
+    path = _PID_FILE if state_file is None else state_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a+b") as lock:
         if os.name == "nt":
             import msvcrt
 
