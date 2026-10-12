@@ -199,6 +199,12 @@ public sealed class ModelItem
     public string Id { get; set; } = "";
 }
 
+public sealed class FoundryModelCatalog
+{
+    public IReadOnlyList<string> Installed { get; init; } = [];
+    public IReadOnlyList<string> Available { get; init; } = [];
+}
+
 public sealed class AppSettings
 {
     public string ApiUrl { get; set; } = "http://127.0.0.1:8000";

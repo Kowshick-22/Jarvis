@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using OpenJarvis.WinUI.Models;
 
 namespace OpenJarvis.WinUI.Services;
 
@@ -251,6 +252,73 @@ public sealed class FoundryClient
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Split Foundry variants into downloaded (installed) vs catalog-only (downloadable).
+    /// </summary>
+    public async Task<FoundryModelCatalog> ListCatalogAsync(CancellationToken cancellationToken)
+    {
+        var foundry = FindFoundry();
+        if (foundry is null)
+        {
+            return new FoundryModelCatalog();
+        }
+
+        var (stdout, _) = await RunCaptureAsync(
+            foundry,
+            "model list --variants -o json",
+            cancellationToken);
+        var jsonStart = stdout.IndexOf('{');
+        if (jsonStart < 0)
+        {
+            return new FoundryModelCatalog();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout[jsonStart..]);
+            if (!doc.RootElement.TryGetProperty("variants", out var variants) ||
+                variants.ValueKind != JsonValueKind.Array)
+            {
+                return new FoundryModelCatalog();
+            }
+
+            var installed = new List<string>();
+            var available = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var variant in variants.EnumerateArray())
+            {
+                var id = ReadString(variant, "variantId")
+                    ?? ReadString(variant, "variantName")
+                    ?? ReadString(variant, "alias");
+                if (string.IsNullOrWhiteSpace(id) || !seen.Add(id))
+                {
+                    continue;
+                }
+
+                var cached = variant.TryGetProperty("cached", out var cachedEl) &&
+                             cachedEl.ValueKind is JsonValueKind.True;
+                if (cached)
+                {
+                    installed.Add(id);
+                }
+                else
+                {
+                    available.Add(id);
+                }
+            }
+
+            return new FoundryModelCatalog
+            {
+                Installed = installed,
+                Available = available
+            };
+        }
+        catch (JsonException)
+        {
+            return new FoundryModelCatalog();
+        }
     }
 
     private static async Task LoadModelAsync(

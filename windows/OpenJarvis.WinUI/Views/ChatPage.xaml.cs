@@ -42,7 +42,7 @@ public sealed partial class ChatPage : Page
     private void SyncSelectedModel()
     {
         var model = App.Services.Settings.Current.SelectedModel;
-        if (string.IsNullOrWhiteSpace(model) || ModelBox.SelectedItem as string == model)
+        if (string.IsNullOrWhiteSpace(model) || SelectedModelId() == model)
         {
             return;
         }
@@ -50,13 +50,8 @@ public sealed partial class ChatPage : Page
         _suppressModelChange = true;
         try
         {
-            var items = ModelBox.ItemsSource as IEnumerable<string> ?? [];
-            if (!items.Contains(model, StringComparer.OrdinalIgnoreCase))
-            {
-                ModelBox.ItemsSource = items.Append(model).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            }
-
-            ModelBox.SelectedItem = model;
+            EnsureModelInPicker(model, installed: true);
+            SelectModelInPicker(model);
             if (_active is not null)
             {
                 _active.Model = model;
@@ -98,21 +93,16 @@ public sealed partial class ChatPage : Page
     private async Task RefreshServerAsync()
     {
         var info = await App.Services.Api.GetInfoAsync(CancellationToken.None);
-        var models = await App.Services.Api.GetModelsAsync(CancellationToken.None);
+        var catalog = await App.Services.Foundry.ListCatalogAsync(CancellationToken.None);
+        var apiModels = await App.Services.Api.GetModelsAsync(CancellationToken.None);
         _suppressModelChange = true;
         try
         {
-            ModelBox.ItemsSource = models.Count > 0
-                ? models
-                : new[] { App.Services.Settings.Current.SelectedModel };
+            PopulateModelPicker(catalog, apiModels);
             var selected = App.Services.Settings.Current.SelectedModel;
-            if (models.Contains(selected))
+            if (!SelectModelInPicker(selected) && ModelBox.Items.Count > 0)
             {
-                ModelBox.SelectedItem = selected;
-            }
-            else if (ModelBox.Items.Count > 0)
-            {
-                ModelBox.SelectedIndex = 0;
+                ModelBox.SelectedIndex = FirstSelectableIndex();
             }
         }
         finally
@@ -133,10 +123,128 @@ public sealed partial class ChatPage : Page
         }
     }
 
+    private const string AvailableSeparator = "── Available to download ──";
+
+    private void PopulateModelPicker(FoundryModelCatalog catalog, IReadOnlyList<string> apiModels)
+    {
+        ModelBox.ItemsSource = null;
+        ModelBox.Items.Clear();
+
+        var installed = catalog.Installed.Count > 0
+            ? catalog.Installed
+            : apiModels;
+        var selected = App.Services.Settings.Current.SelectedModel;
+        if (!string.IsNullOrWhiteSpace(selected) &&
+            !installed.Contains(selected, StringComparer.OrdinalIgnoreCase) &&
+            !catalog.Available.Contains(selected, StringComparer.OrdinalIgnoreCase))
+        {
+            installed = installed.Append(selected).ToArray();
+        }
+
+        foreach (var id in installed)
+        {
+            ModelBox.Items.Add(ModelPickerItem(id));
+        }
+
+        if (catalog.Available.Count > 0)
+        {
+            ModelBox.Items.Add(new ComboBoxItem
+            {
+                Content = AvailableSeparator,
+                IsEnabled = false,
+                IsHitTestVisible = false
+            });
+            foreach (var id in catalog.Available)
+            {
+                ModelBox.Items.Add(ModelPickerItem(id));
+            }
+        }
+
+        if (ModelBox.Items.Count == 0 && !string.IsNullOrWhiteSpace(selected))
+        {
+            ModelBox.Items.Add(ModelPickerItem(selected));
+        }
+    }
+
+    private static ComboBoxItem ModelPickerItem(string id) =>
+        new() { Content = id, Tag = id };
+
+    private bool SelectModelInPicker(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return false;
+        }
+
+        foreach (var item in ModelBox.Items)
+        {
+            if (item is ComboBoxItem combo &&
+                string.Equals(combo.Tag as string ?? combo.Content as string, model, StringComparison.OrdinalIgnoreCase))
+            {
+                ModelBox.SelectedItem = combo;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void EnsureModelInPicker(string model, bool installed)
+    {
+        if (SelectModelInPicker(model))
+        {
+            return;
+        }
+
+        var item = ModelPickerItem(model);
+        if (installed)
+        {
+            var separator = ModelBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(i => i.Content as string == AvailableSeparator);
+            if (separator is not null)
+            {
+                ModelBox.Items.Insert(ModelBox.Items.IndexOf(separator), item);
+            }
+            else
+            {
+                ModelBox.Items.Insert(0, item);
+            }
+        }
+        else
+        {
+            ModelBox.Items.Add(item);
+        }
+    }
+
+    private int FirstSelectableIndex()
+    {
+        for (var i = 0; i < ModelBox.Items.Count; i++)
+        {
+            if (ModelBox.Items[i] is ComboBoxItem { IsEnabled: true })
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private string? SelectedModelId()
+    {
+        return ModelBox.SelectedItem switch
+        {
+            ComboBoxItem { Tag: string tag } => tag,
+            ComboBoxItem { Content: string content } => content,
+            string id => id,
+            _ => null
+        };
+    }
+
     private void NewChat_Click(object sender, RoutedEventArgs e)
     {
         _active = App.Services.Conversations.NewConversation(
-            ModelBox.SelectedItem as string ?? App.Services.Settings.Current.SelectedModel);
+            SelectedModelId() ?? App.Services.Settings.Current.SelectedModel);
         ConversationList.SelectedItem = _active;
         ReloadMessages();
         _tools.Clear();
@@ -154,8 +262,29 @@ public sealed partial class ChatPage : Page
 
     private async void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressModelChange ||
-            ModelBox.SelectedItem is not string model ||
+        if (_suppressModelChange)
+        {
+            return;
+        }
+
+        if (ModelBox.SelectedItem is ComboBoxItem { IsEnabled: false })
+        {
+            _suppressModelChange = true;
+            try
+            {
+                SelectModelInPicker(App.Services.Settings.Current.SelectedModel);
+            }
+            finally
+            {
+                _suppressModelChange = false;
+            }
+
+            return;
+        }
+
+        var model = SelectedModelId();
+        if (string.IsNullOrWhiteSpace(model) ||
+            model == AvailableSeparator ||
             model == App.Services.Settings.Current.SelectedModel)
         {
             return;
@@ -248,7 +377,7 @@ public sealed partial class ChatPage : Page
         var payload = new
         {
             model = ResolveModelId(
-                ModelBox.SelectedItem as string ?? App.Services.Settings.Current.SelectedModel),
+                SelectedModelId() ?? App.Services.Settings.Current.SelectedModel),
             stream = true,
             temperature = App.Services.Settings.Current.Temperature,
             max_tokens = App.Services.Settings.Current.MaxTokens,
@@ -297,15 +426,19 @@ public sealed partial class ChatPage : Page
             return selected;
         }
 
-        if (ModelBox.ItemsSource is IEnumerable<string> models)
+        foreach (var item in ModelBox.Items.OfType<ComboBoxItem>())
         {
-            var match = models.FirstOrDefault(m =>
-                m.Equals(selected, StringComparison.OrdinalIgnoreCase) ||
-                m.StartsWith(selected + ":", StringComparison.OrdinalIgnoreCase) ||
-                m.StartsWith(selected + "-", StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(match))
+            if (item.Content as string == AvailableSeparator)
             {
-                return match;
+                continue;
+            }
+
+            var id = item.Tag as string ?? item.Content as string ?? "";
+            if (id.Equals(selected, StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(selected + ":", StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(selected + "-", StringComparison.OrdinalIgnoreCase))
+            {
+                return id;
             }
         }
 
