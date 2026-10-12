@@ -78,7 +78,8 @@ Relative file names resolve inside the first allowed directory. Paths using
 `..` or symlinks must still resolve within an allowed directory. Use an array
 of non-empty directory paths; invalid or unreadable configuration prevents the
 file tools from loading instead of removing their restrictions. Explicit
-configuration supplied to the CLI, SDK, or system builder uses the same policy.
+configuration supplied to the CLI, SDK, or system builder uses the same policy,
+including managed-agent streaming, scheduled ticks, and ephemeral turns.
 
 ### Sensitive filenames
 

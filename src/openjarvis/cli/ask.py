@@ -356,7 +356,9 @@ def _build_tools(
         elif name == "llm":
             tools.append(tool_cls(engine=engine, model=model_name))
         elif name in {"file_read", "file_write"}:
-            tools.append(tool_cls(allowed_dirs=config.security.allowed_dirs))
+            from openjarvis.tools._paths import file_tool_kwargs
+
+            tools.append(tool_cls(**file_tool_kwargs(name, config)))
         else:
             tools.append(tool_cls())
     return tools

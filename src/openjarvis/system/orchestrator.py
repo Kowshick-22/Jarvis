@@ -336,10 +336,10 @@ class QueryOrchestrator:
                 elif name in {"file_read", "file_write"} and ToolRegistry.contains(
                     name
                 ):
+                    from openjarvis.tools._paths import file_tool_kwargs
+
                     tools.append(
-                        ToolRegistry.create(
-                            name, allowed_dirs=s.config.security.allowed_dirs
-                        )
+                        ToolRegistry.create(name, **file_tool_kwargs(name, s.config))
                     )
                 elif ToolRegistry.contains(name):
                     tools.append(ToolRegistry.create(name))

@@ -148,6 +148,56 @@ def test_active_config_controls_tools_instead_of_ambient_config(
     assert outside.read_text() == "outside must stay intact"
 
 
+@pytest.mark.parametrize("entry_point", ["cli_sdk", "system", "orchestrator"])
+def test_invalid_active_policy_cannot_fall_back_to_valid_ambient_config(
+    monkeypatch, entry_point
+):
+    from openjarvis.core.registry import ToolRegistry
+
+    cfg = JarvisConfig()
+    cfg.security.allowed_dirs = None
+    cfg.tools.enabled = "file_read,file_write"
+    ambient = JarvisConfig()
+    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: ambient)
+    ToolRegistry.register_value("file_read", FileReadTool)
+    ToolRegistry.register_value("file_write", FileWriteTool)
+    if entry_point == "cli_sdk":
+        from openjarvis.cli.ask import _build_tools
+
+        with pytest.raises(ValueError, match="allowed_dirs"):
+            _build_tools(["file_read", "file_write"], cfg, None, "")
+    elif entry_point == "system":
+        from openjarvis.system.builder import SystemBuilder
+
+        with pytest.raises(ValueError, match="allowed_dirs"):
+            SystemBuilder(config=cfg)._resolve_tools(cfg, None, "", None)
+    else:
+        from openjarvis.system.orchestrator import QueryOrchestrator
+
+        system = SimpleNamespace(config=cfg, memory_backend=None, engine=None, model="")
+        assert QueryOrchestrator(system)._build_tools(["file_read", "file_write"]) == []
+
+
+def test_managed_route_constructor_uses_active_policy(tmp_path, monkeypatch):
+    from openjarvis.server.agent_manager_routes import _instantiate_managed_tool
+
+    cfg = JarvisConfig()
+    cfg.security.allowed_dirs = [str(tmp_path / "allowed")]
+    state = SimpleNamespace(config=cfg, memory_backend=object())
+    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    outside = tmp_path / "outside.txt"
+    outside.write_text("must stay outside")
+    tool = _instantiate_managed_tool(
+        FileReadTool, "file_read", engine=None, model="", app_state=state
+    )
+    assert not tool.execute(path=str(outside)).success
+    cfg.security.allowed_dirs = None
+    with pytest.raises(ValueError, match="allowed_dirs"):
+        _instantiate_managed_tool(
+            FileReadTool, "file_read", engine=None, model="", app_state=state
+        )
+
+
 def test_traversal_and_symlinks_cannot_escape_configured_directory(tmp_path):
     inside = tmp_path / "allowed"
     inside.mkdir()
