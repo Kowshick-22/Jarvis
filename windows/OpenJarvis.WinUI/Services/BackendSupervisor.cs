@@ -10,8 +10,11 @@ public sealed class BackendSupervisor : IDisposable
     private readonly SettingsStore _settings;
     private readonly NativeJob _job = new();
     private Process? _jarvis;
+    private Task? _drain;
     private CancellationTokenSource? _loop;
     private int _backoffMs = 1000;
+    private readonly object _logGate = new();
+    private string _recentOutput = "";
 
     public BackendSupervisor(JarvisApiClient api, FoundryClient foundry, SettingsStore settings)
     {
@@ -45,7 +48,20 @@ public sealed class BackendSupervisor : IDisposable
         _settings.Current.SelectedAgent = agent;
         _settings.Save();
         StopJarvis();
+        SetStatus("Restarting", $"Switching agent to {agent}…", false, false);
         await StartJarvisAsync(cancellationToken);
+        await WaitUntilReadyAsync(cancellationToken);
+    }
+
+    public async Task RestartWithModelAsync(string model, CancellationToken cancellationToken)
+    {
+        _settings.Current.SelectedModel = model;
+        _settings.Save();
+        await LoadSelectedModelAsync(cancellationToken);
+        StopJarvis();
+        SetStatus("Restarting", $"Switching model to {model}…", false, false);
+        await StartJarvisAsync(cancellationToken);
+        await WaitUntilReadyAsync(cancellationToken);
     }
 
     public void Dispose()
@@ -67,15 +83,19 @@ public sealed class BackendSupervisor : IDisposable
                 shortWait.CancelAfter(TimeSpan.FromSeconds(2));
                 if (await _api.IsHealthyAsync(shortWait.Token))
                 {
+                    await LoadSelectedModelAsync(cancellationToken);
                     SetStatus("Ready", "Attached to an existing OpenJarvis server.", true, false);
                     _backoffMs = 1000;
                     await WaitUntilUnhealthyAsync(cancellationToken);
                     continue;
                 }
 
-                SetStatus("Starting Foundry Local", "Starting the Windows ML inference service…", false, false);
-                var host = await _foundry.EnsureServiceAsync(cancellationToken);
+                SetStatus("Starting Foundry Local", "Ensuring Foundry Local is installed and running…", false, false);
+                var progress = new Progress<string>(line =>
+                    SetStatus("Starting Foundry Local", line, false, false));
+                var host = await _foundry.EnsureServiceAsync(cancellationToken, progress);
                 TomlSettings.SetFoundryHost(host);
+                await LoadSelectedModelAsync(cancellationToken);
 
                 SetStatus("Starting OpenJarvis", "Launching jarvis serve…", false, false);
                 await StartJarvisAsync(cancellationToken);
@@ -93,8 +113,7 @@ public sealed class BackendSupervisor : IDisposable
 
                     if (_jarvis is { HasExited: true })
                     {
-                        throw new InvalidOperationException(
-                            $"jarvis serve exited with code {_jarvis.ExitCode}. Check {AppPaths.LogsDir}.");
+                        throw new InvalidOperationException(await FormatExitAsync(_jarvis, cancellationToken));
                     }
 
                     SetStatus("Waiting", "Waiting for /health…", false, false);
@@ -123,30 +142,66 @@ public sealed class BackendSupervisor : IDisposable
         }
     }
 
+    private async Task LoadSelectedModelAsync(CancellationToken cancellationToken)
+    {
+        var model = _settings.Current.SelectedModel;
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return;
+        }
+
+        SetStatus("Loading model", $"Loading {model} into Foundry Local…", false, false);
+        var progress = new Progress<string>(line =>
+            SetStatus("Loading model", line, false, false));
+        var loaded = await _foundry.EnsureModelLoadedAsync(model, cancellationToken, progress);
+        if (!string.IsNullOrWhiteSpace(loaded) &&
+            !string.Equals(loaded, model, StringComparison.OrdinalIgnoreCase))
+        {
+            _settings.Current.SelectedModel = loaded;
+            _settings.Save();
+            SetStatus(
+                "Loading model",
+                $"This device cannot load {model}. Using {loaded} instead.",
+                false,
+                false);
+        }
+    }
+
     private async Task StartJarvisAsync(CancellationToken cancellationToken)
     {
         StopJarvis();
+        lock (_logGate)
+        {
+            _recentOutput = "";
+        }
+
         var jarvis = AppPaths.JarvisExecutable();
+        var devRoot = AppPaths.DevProjectRoot();
+        var serveArgs = ServeArguments();
         var start = new ProcessStartInfo
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = Directory.Exists(AppPaths.SrcDir) ? AppPaths.SrcDir : AppPaths.LocalAppData
+            WorkingDirectory = WorkingDirectoryFor(jarvis, devRoot)
         };
 
         if (jarvis.EndsWith("uv.exe", StringComparison.OrdinalIgnoreCase))
         {
+            if (string.IsNullOrEmpty(devRoot))
+            {
+                throw new InvalidOperationException(
+                    "The OpenJarvis backend is not installed. Repair or reinstall OpenJarvis from Apps & Features.");
+            }
+
             start.FileName = jarvis;
-            start.Arguments =
-                $"run jarvis serve --engine foundry_local --model {_settings.Current.SelectedModel} --agent {_settings.Current.SelectedAgent} --port 8000 --host 127.0.0.1";
+            start.Arguments = $"run --extra server --project {Quote(devRoot)} jarvis {serveArgs}";
         }
         else if (File.Exists(jarvis))
         {
             start.FileName = jarvis;
-            start.Arguments =
-                $"serve --engine foundry_local --model {_settings.Current.SelectedModel} --agent {_settings.Current.SelectedAgent} --port 8000 --host 127.0.0.1";
+            start.Arguments = serveArgs;
         }
         else
         {
@@ -155,12 +210,89 @@ public sealed class BackendSupervisor : IDisposable
         }
 
         Directory.CreateDirectory(AppPaths.LogsDir);
+        var log = Path.Combine(AppPaths.LogsDir, "jarvis-serve.log");
+        File.AppendAllText(
+            log,
+            $"[{DateTimeOffset.Now:O}] {start.FileName} {start.Arguments} (cwd={start.WorkingDirectory}){Environment.NewLine}");
         start.Environment["OPENJARVIS_HOME"] = AppPaths.ConfigDir;
         _jarvis = Process.Start(start)
             ?? throw new InvalidOperationException("Failed to start jarvis serve.");
         _job.Add(_jarvis);
-        _ = DrainAsync(_jarvis, cancellationToken);
+        _drain = DrainAsync(_jarvis, cancellationToken);
         await Task.Delay(500, cancellationToken);
+    }
+
+    private string ServeArguments()
+    {
+        return
+            "serve --engine foundry_local " +
+            $"--model {Quote(_settings.Current.SelectedModel)} " +
+            $"--agent {Quote(_settings.Current.SelectedAgent)} " +
+            "--port 8000 --host 127.0.0.1";
+    }
+
+    private static string WorkingDirectoryFor(string jarvis, string? devRoot)
+    {
+        if (!string.IsNullOrEmpty(devRoot) &&
+            (jarvis.EndsWith("uv.exe", StringComparison.OrdinalIgnoreCase) ||
+             jarvis.StartsWith(devRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        {
+            return devRoot;
+        }
+
+        return Directory.Exists(AppPaths.SrcDir) ? AppPaths.SrcDir : AppPaths.LocalAppData;
+    }
+
+    private static string Quote(string value)
+    {
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
+    }
+
+    private async Task<string> FormatExitAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (_drain is not null)
+        {
+            await Task.WhenAny(_drain, Task.Delay(TimeSpan.FromSeconds(2), cancellationToken));
+        }
+
+        string tail;
+        lock (_logGate)
+        {
+            tail = _recentOutput.Trim();
+        }
+
+        if (tail.Length > 500)
+        {
+            tail = tail[^500..];
+        }
+
+        var message = $"jarvis serve exited with code {process.ExitCode}.";
+        return tail.Length == 0
+            ? $"{message} Check {AppPaths.LogsDir}."
+            : $"{message} {tail}";
+    }
+
+    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
+        {
+            if (await _api.IsEngineHealthyAsync(cancellationToken))
+            {
+                SetStatus("Ready", "OpenJarvis is ready.", true, false);
+                return;
+            }
+
+            if (_jarvis is { HasExited: true })
+            {
+                throw new InvalidOperationException(await FormatExitAsync(_jarvis, cancellationToken));
+            }
+
+            await Task.Delay(500, cancellationToken);
+        }
+
+        throw new InvalidOperationException(
+            "Timed out waiting for the OpenJarvis backend after a model or agent change.");
     }
 
     private async Task WaitUntilUnhealthyAsync(CancellationToken cancellationToken)
@@ -194,22 +326,56 @@ public sealed class BackendSupervisor : IDisposable
         _jarvis = null;
     }
 
-    private static async Task DrainAsync(Process process, CancellationToken cancellationToken)
+    private async Task DrainAsync(Process process, CancellationToken cancellationToken)
     {
         try
         {
             var log = Path.Combine(AppPaths.LogsDir, "jarvis-serve.log");
-            await using var writer = new StreamWriter(log, append: true);
-            while (!process.HasExited && !cancellationToken.IsCancellationRequested)
+            var gate = new SemaphoreSlim(1, 1);
+            await using var writer = new StreamWriter(
+                new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
             {
-                var line = await process.StandardOutput.ReadLineAsync(cancellationToken);
-                if (line is null)
-                {
-                    break;
-                }
+                AutoFlush = true
+            };
 
-                await writer.WriteLineAsync(line);
+            async Task Pump(StreamReader reader)
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(cancellationToken);
+                    if (line is null)
+                    {
+                        break;
+                    }
+
+                    lock (_logGate)
+                    {
+                        _recentOutput = string.IsNullOrEmpty(_recentOutput)
+                            ? line
+                            : _recentOutput + "\n" + line;
+                        if (_recentOutput.Length > 4000)
+                        {
+                            _recentOutput = _recentOutput[^4000..];
+                        }
+                    }
+
+                    await gate.WaitAsync(cancellationToken);
+                    try
+                    {
+                        await writer.WriteLineAsync(line);
+                    }
+                    finally
+                    {
+                        gate.Release();
+                    }
+                }
             }
+
+            await Task.WhenAll(Pump(process.StandardOutput), Pump(process.StandardError));
+        }
+        catch (OperationCanceledException)
+        {
+            // App shutdown.
         }
         catch
         {
@@ -228,9 +394,16 @@ public sealed class BackendSupervisor : IDisposable
 
     private static string Actionable(string message)
     {
+        if (message.Contains("Foundry Local is not installed", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("foundry.exe was not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return message + " Open Setup and choose Start setup to install Foundry Local automatically.";
+        }
+
         if (message.Contains("Foundry", StringComparison.OrdinalIgnoreCase))
         {
-            return message + " Install the Foundry Local Windows ML ARM64 package, then reopen OpenJarvis.";
+            return message
+                + " Open Setup → Start setup (use a *-generic-cpu model id on VMs without a GPU).";
         }
 
         if (message.Contains("jarvis", StringComparison.OrdinalIgnoreCase))

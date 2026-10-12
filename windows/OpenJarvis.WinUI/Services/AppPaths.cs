@@ -30,8 +30,63 @@ public static class AppPaths
             return scripts;
         }
 
-        var uv = FindOnPath("uv.exe");
-        return uv ?? "";
+        var devRoot = DevProjectRoot();
+        if (devRoot is not null)
+        {
+            // Dev checkouts need `uv run --extra server` so FastAPI/uvicorn are
+            // present. The bare .venv console script exits when that extra is missing.
+            var uv = FindOnPath("uv.exe");
+            if (uv is not null)
+            {
+                return uv;
+            }
+
+            var devJarvis = Path.Combine(devRoot, ".venv", "Scripts", "jarvis.exe");
+            if (File.Exists(devJarvis))
+            {
+                return devJarvis;
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Checkout that contains this app build, when one is present above the
+    /// executable. Installed copies under Program Files return null.
+    /// </summary>
+    public static string? DevProjectRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var pyproject = Path.Combine(dir.FullName, "pyproject.toml");
+            if (File.Exists(pyproject) && IsOpenJarvisProject(pyproject))
+            {
+                return dir.FullName;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return null;
+    }
+
+    private static bool IsOpenJarvisProject(string pyprojectPath)
+    {
+        try
+        {
+            var text = File.ReadAllText(pyprojectPath);
+            return text.Contains("openjarvis.cli:main", StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public static string? FindOnPath(string fileName)

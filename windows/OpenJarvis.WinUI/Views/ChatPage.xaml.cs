@@ -14,6 +14,7 @@ public sealed partial class ChatPage : Page
     private readonly ObservableCollection<ToolCallInfo> _tools = [];
     private CancellationTokenSource? _sendCts;
     private Conversation? _active;
+    private bool _suppressModelChange;
 
     public ChatPage()
     {
@@ -24,6 +25,47 @@ public sealed partial class ChatPage : Page
         AgentBox.ItemsSource = AgentChoices.All;
         AgentBox.SelectedItem = App.Services.Settings.Current.SelectedAgent;
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+        App.Services.Supervisor.StatusChanged += OnBackendStatusChanged;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        App.Services.Supervisor.StatusChanged -= OnBackendStatusChanged;
+    }
+
+    private void OnBackendStatusChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(SyncSelectedModel);
+    }
+
+    private void SyncSelectedModel()
+    {
+        var model = App.Services.Settings.Current.SelectedModel;
+        if (string.IsNullOrWhiteSpace(model) || ModelBox.SelectedItem as string == model)
+        {
+            return;
+        }
+
+        _suppressModelChange = true;
+        try
+        {
+            var items = ModelBox.ItemsSource as IEnumerable<string> ?? [];
+            if (!items.Contains(model, StringComparer.OrdinalIgnoreCase))
+            {
+                ModelBox.ItemsSource = items.Append(model).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+
+            ModelBox.SelectedItem = model;
+            if (_active is not null)
+            {
+                _active.Model = model;
+            }
+        }
+        finally
+        {
+            _suppressModelChange = false;
+        }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -57,15 +99,25 @@ public sealed partial class ChatPage : Page
     {
         var info = await App.Services.Api.GetInfoAsync(CancellationToken.None);
         var models = await App.Services.Api.GetModelsAsync(CancellationToken.None);
-        ModelBox.ItemsSource = models.Count > 0 ? models : new[] { App.Services.Settings.Current.SelectedModel };
-        var selected = App.Services.Settings.Current.SelectedModel;
-        if (models.Contains(selected))
+        _suppressModelChange = true;
+        try
         {
-            ModelBox.SelectedItem = selected;
+            ModelBox.ItemsSource = models.Count > 0
+                ? models
+                : new[] { App.Services.Settings.Current.SelectedModel };
+            var selected = App.Services.Settings.Current.SelectedModel;
+            if (models.Contains(selected))
+            {
+                ModelBox.SelectedItem = selected;
+            }
+            else if (ModelBox.Items.Count > 0)
+            {
+                ModelBox.SelectedIndex = 0;
+            }
         }
-        else if (ModelBox.Items.Count > 0)
+        finally
         {
-            ModelBox.SelectedIndex = 0;
+            _suppressModelChange = false;
         }
 
         if (info?.Hardware is { } hw)
@@ -100,16 +152,30 @@ public sealed partial class ChatPage : Page
         }
     }
 
-    private void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ModelBox.SelectedItem is string model)
+        if (_suppressModelChange ||
+            ModelBox.SelectedItem is not string model ||
+            model == App.Services.Settings.Current.SelectedModel)
         {
-            App.Services.Settings.Current.SelectedModel = model;
-            App.Services.Settings.Save();
-            if (_active is not null)
-            {
-                _active.Model = model;
-            }
+            return;
+        }
+
+        App.Services.Settings.Current.SelectedModel = model;
+        App.Services.Settings.Save();
+        if (_active is not null)
+        {
+            _active.Model = model;
+        }
+
+        try
+        {
+            await App.Services.Supervisor.RestartWithModelAsync(model, CancellationToken.None);
+            await RefreshServerAsync();
+        }
+        catch (Exception ex)
+        {
+            App.Services.Supervisor.ReportUiError(ex.Message);
         }
     }
 
@@ -181,7 +247,8 @@ public sealed partial class ChatPage : Page
         CancelButton.IsEnabled = true;
         var payload = new
         {
-            model = ModelBox.SelectedItem as string ?? App.Services.Settings.Current.SelectedModel,
+            model = ResolveModelId(
+                ModelBox.SelectedItem as string ?? App.Services.Settings.Current.SelectedModel),
             stream = true,
             temperature = App.Services.Settings.Current.Temperature,
             max_tokens = App.Services.Settings.Current.MaxTokens,
@@ -216,6 +283,33 @@ public sealed partial class ChatPage : Page
             CancelButton.IsEnabled = false;
             App.Services.Conversations.Touch(_active);
         }
+    }
+
+    private string ResolveModelId(string selected)
+    {
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            return selected;
+        }
+
+        if (selected.Contains(':', StringComparison.Ordinal))
+        {
+            return selected;
+        }
+
+        if (ModelBox.ItemsSource is IEnumerable<string> models)
+        {
+            var match = models.FirstOrDefault(m =>
+                m.Equals(selected, StringComparison.OrdinalIgnoreCase) ||
+                m.StartsWith(selected + ":", StringComparison.OrdinalIgnoreCase) ||
+                m.StartsWith(selected + "-", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(match))
+            {
+                return match;
+            }
+        }
+
+        return selected;
     }
 
     private void ApplySse(ChatMessage assistant, SseEvent evt)
