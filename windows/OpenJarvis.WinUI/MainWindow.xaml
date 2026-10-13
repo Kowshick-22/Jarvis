@@ -30,9 +30,29 @@
                         <FontIcon Glyph="&#xE8F2;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Dashboard" Tag="dashboard" AccessKey="D" AutomationProperties.Name="Dashboard">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Data Sources" Tag="datasources" AccessKey="S" AutomationProperties.Name="Data Sources">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEDA2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Agents" Tag="agents" AccessKey="G" AutomationProperties.Name="Agents">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE99A;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Approvals" Tag="approvals" AccessKey="A" AutomationProperties.Name="Approvals">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8D2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Logs" Tag="logs" AccessKey="L" AutomationProperties.Name="Logs">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

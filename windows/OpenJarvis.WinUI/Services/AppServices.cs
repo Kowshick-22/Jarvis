@@ -10,6 +10,7 @@ public sealed class AppServices
     public required FoundryClient Foundry { get; init; }
     public required BackendSupervisor Supervisor { get; init; }
     public required UpdateChecker Updates { get; init; }
+    public required LogService Logs { get; init; }
     public string UpdateManifestUrl { get; init; } = "";
 
     public static AppServices Create()
@@ -32,6 +33,7 @@ public sealed class AppServices
             Foundry = foundry,
             Supervisor = supervisor,
             Updates = new UpdateChecker(),
+            Logs = new LogService(supervisor),
             UpdateManifestUrl = ReadUpdateManifestUrl()
         };
     }

@@ -125,17 +125,232 @@ public sealed class JarvisApiClient
         return [];
     }
 
+    public async Task<TelemetryStats?> GetTelemetryStatsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<TelemetryStats>(
+                $"{_base}/v1/telemetry/stats", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<EnergyStats?> GetEnergyStatsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<EnergyStats>(
+                $"{_base}/v1/telemetry/energy", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<SavingsInfo?> GetSavingsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<SavingsInfo>($"{_base}/v1/savings", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<TraceSummary>> GetTracesAsync(
+        int limit, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _http.GetFromJsonAsync<TracesResponse>(
+                $"{_base}/v1/traces?limit={limit}", cancellationToken);
+            return response?.Traces ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<ConnectorSummary>> GetConnectorsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/connectors", cancellationToken);
+            if (payload.TryGetProperty("connectors", out var connectors))
+            {
+                return connectors.Deserialize<List<ConnectorSummary>>() ?? [];
+            }
+        }
+        catch
+        {
+            // Backend may still be starting.
+        }
+
+        return [];
+    }
+
+    public async Task<ConnectorDetail?> GetConnectorDetailAsync(
+        string connectorId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<ConnectorDetail>(
+                $"{_base}/v1/connectors/{connectorId}", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Body shape depends on the connector's auth type: "filesystem"
+    /// takes <c>{path}</c>, "token"/"credentials" take <c>{token}</c>,
+    /// "local" and "oauth" take an empty body. Connector-specific extra
+    /// fields some connectors need beyond that (e.g. weather's location,
+    /// news_rss's feed URL) are out of scope for this generic form.</summary>
+    public async Task<ConnectResult?> ConnectConnectorAsync(
+        string connectorId, object body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/connectors/{connectorId}/connect", body, cancellationToken);
+            return await response.Content.ReadFromJsonAsync<ConnectResult>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The backend 409s with "still stopping" during a disconnect
+    /// race — null here means "didn't succeed this attempt", which the
+    /// caller should treat as retryable, not a hard failure.</summary>
+    public async Task<ConnectResult?> DisconnectConnectorAsync(
+        string connectorId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/connectors/{connectorId}/disconnect", new { }, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ConnectResult>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> StartSyncAsync(string connectorId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/connectors/{connectorId}/sync", new { }, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<SyncStatus?> GetSyncStatusAsync(string connectorId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<SyncStatus>(
+                $"{_base}/v1/connectors/{connectorId}/sync", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public Task ApproveAsync(string id, CancellationToken cancellationToken) =>
         _http.PostAsync($"{_base}/v1/approvals/{id}/approve", null, cancellationToken);
 
     public Task DenyAsync(string id, CancellationToken cancellationToken) =>
         _http.PostAsync($"{_base}/v1/approvals/{id}/deny", null, cancellationToken);
 
-    public async IAsyncEnumerable<SseEvent> StreamChatAsync(
+    public IAsyncEnumerable<SseEvent> StreamChatAsync(
+        object request, CancellationToken cancellationToken) =>
+        StreamSseAsync(
+            $"{_base}/v1/chat/completions",
+            request,
+            "Could not reach the OpenJarvis backend. Wait until status shows Ready, or open Setup if Foundry is missing.",
+            "The chat request timed out while connecting to the backend.",
+            "Chat",
+            cancellationToken);
+
+    /// <summary>The agent-chat endpoint is a queue, not a live stream: this
+    /// posts one message (mode "queued" needs a scheduled/manual run to be
+    /// processed; "immediate" triggers processing right away) and returns
+    /// immediately with the created message (<c>status: "pending"</c>).
+    /// Poll <see cref="GetAgentMessagesAsync"/> for the agent's reply —
+    /// confirmed live: there is no SSE framing on this route at all,
+    /// despite it superficially resembling the chat-completions endpoint.</summary>
+    public async Task<AgentMessage?> PostAgentMessageAsync(
+        string agentId, string content, string mode, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/managed-agents/{agentId}/messages",
+                new { content, mode },
+                cancellationToken);
+            return await response.Content.ReadFromJsonAsync<AgentMessage>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<AgentMessage>> GetAgentMessagesAsync(
+        string agentId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/managed-agents/{agentId}/messages", cancellationToken);
+            return payload.TryGetProperty("messages", out var messages)
+                ? messages.Deserialize<List<AgentMessage>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Shared SSE POST+parse loop behind <see cref="StreamChatAsync"/>
+    /// and <see cref="StreamAgentMessageAsync"/> — same wire format
+    /// (<c>event:</c>/<c>data:</c> lines, <c>[DONE]</c> sentinel) on both
+    /// endpoints.</summary>
+    private async IAsyncEnumerable<SseEvent> StreamSseAsync(
+        string url,
         object request,
+        string connectErrorMessage,
+        string timeoutErrorMessage,
+        string failureLabel,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var message = new HttpRequestMessage(HttpMethod.Post, $"{_base}/v1/chat/completions")
+        using var message = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = JsonContent.Create(request)
         };
@@ -149,14 +364,11 @@ public sealed class JarvisApiClient
         }
         catch (HttpRequestException ex)
         {
-            throw new InvalidOperationException(
-                "Could not reach the OpenJarvis backend. Wait until status shows Ready, or open Setup if Foundry is missing.",
-                ex);
+            throw new InvalidOperationException(connectErrorMessage, ex);
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new InvalidOperationException(
-                "The chat request timed out while connecting to the backend.", ex);
+            throw new InvalidOperationException(timeoutErrorMessage, ex);
         }
 
         using (response)
@@ -164,7 +376,7 @@ public sealed class JarvisApiClient
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                throw new InvalidOperationException($"Chat failed ({(int)response.StatusCode}): {body}");
+                throw new InvalidOperationException($"{failureLabel} failed ({(int)response.StatusCode}): {body}");
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -199,6 +411,177 @@ public sealed class JarvisApiClient
                     currentEvent = null;
                 }
             }
+        }
+    }
+
+    public async Task<IReadOnlyList<ManagedAgentSummary>> GetManagedAgentsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/managed-agents", cancellationToken);
+            return payload.TryGetProperty("agents", out var agents)
+                ? agents.Deserialize<List<ManagedAgentSummary>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<ManagedAgentSummary?> GetManagedAgentAsync(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<ManagedAgentSummary>(
+                $"{_base}/v1/managed-agents/{id}", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<ManagedAgentSummary?> CreateManagedAgentAsync(object body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/managed-agents", body, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ManagedAgentSummary>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> DeleteManagedAgentAsync(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.DeleteAsync($"{_base}/v1/managed-agents/{id}", cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<string?> PostLifecycleAsync(string id, string action, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/managed-agents/{id}/{action}", new { }, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                // 409 on /run (already running) is expected, not a failure to swallow silently.
+                return (int)response.StatusCode == 409 ? "already_running" : null;
+            }
+
+            var doc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+            return doc.TryGetProperty("status", out var status) ? status.GetString() : "ok";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public Task<string?> PauseAgentAsync(string id, CancellationToken cancellationToken) =>
+        PostLifecycleAsync(id, "pause", cancellationToken);
+
+    public Task<string?> ResumeAgentAsync(string id, CancellationToken cancellationToken) =>
+        PostLifecycleAsync(id, "resume", cancellationToken);
+
+    public Task<string?> RunAgentAsync(string id, CancellationToken cancellationToken) =>
+        PostLifecycleAsync(id, "run", cancellationToken);
+
+    public Task<string?> RecoverAgentAsync(string id, CancellationToken cancellationToken) =>
+        PostLifecycleAsync(id, "recover", cancellationToken);
+
+    public async Task<IReadOnlyList<AgentTask>> GetAgentTasksAsync(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/managed-agents/{id}/tasks", cancellationToken);
+            return payload.TryGetProperty("tasks", out var tasks)
+                ? tasks.Deserialize<List<AgentTask>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<bool> CreateAgentTaskAsync(
+        string id, string description, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/managed-agents/{id}/tasks", new { description }, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<LearningLogEntry>> GetLearningLogAsync(
+        string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/managed-agents/{id}/learning", cancellationToken);
+            return payload.TryGetProperty("learning_log", out var log)
+                ? log.Deserialize<List<LearningLogEntry>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public Task RunLearningAsync(string id, CancellationToken cancellationToken) =>
+        _http.PostAsync($"{_base}/v1/managed-agents/{id}/learning/run", null, cancellationToken);
+
+    public async Task<IReadOnlyList<AgentTemplate>> GetAgentTemplatesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>($"{_base}/v1/templates", cancellationToken);
+            return payload.TryGetProperty("templates", out var templates)
+                ? templates.Deserialize<List<AgentTemplate>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<ToolCatalogItem>> GetToolCatalogAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>($"{_base}/v1/tools", cancellationToken);
+            return payload.TryGetProperty("tools", out var tools)
+                ? tools.Deserialize<List<ToolCatalogItem>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
         }
     }
 }

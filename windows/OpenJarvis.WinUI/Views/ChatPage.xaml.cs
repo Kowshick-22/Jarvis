@@ -31,7 +31,8 @@ public sealed partial class ChatPage : Page
     public ChatPage()
     {
         InitializeComponent();
-        ConversationList.ItemsSource = App.Services.Conversations.Items;
+        App.Services.Conversations.Items.CollectionChanged += OnConversationsChanged;
+        ApplyConversationFilter();
         MessageList.ItemsSource = _messages;
         ToolList.ItemsSource = _tools;
         AgentBox.ItemsSource = AgentChoices.All;
@@ -45,6 +46,46 @@ public sealed partial class ChatPage : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         App.Services.Supervisor.StatusChanged -= OnBackendStatusChanged;
+        App.Services.Conversations.Items.CollectionChanged -= OnConversationsChanged;
+    }
+
+    private void OnConversationsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
+        ApplyConversationFilter();
+
+    private void ConversationSearchBox_TextChanged(
+        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) =>
+        ApplyConversationFilter();
+
+    private void ApplyConversationFilter()
+    {
+        var query = ConversationSearchBox?.Text?.Trim() ?? "";
+        var items = App.Services.Conversations.Items.AsEnumerable();
+        if (query.Length > 0)
+        {
+            items = items.Where(c => c.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _suppressListSelection = true;
+        try
+        {
+            ConversationList.ItemsSource = items.ToList();
+            ConversationList.SelectedItem = _active;
+        }
+        finally
+        {
+            _suppressListSelection = false;
+        }
+    }
+
+    private void ToggleTheme_Click(object sender, RoutedEventArgs e)
+    {
+        var next = App.Services.Settings.CycleTheme();
+        ThemeToggleIcon.Glyph = next switch
+        {
+            "Light" => "", // Sunny
+            "Dark" => "", // ClearNight
+            _ => "" // Settings/auto-ish glyph for "system"
+        };
     }
 
     private void OnBackendStatusChanged(object? sender, EventArgs e)
@@ -607,6 +648,34 @@ public sealed partial class ChatPage : Page
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => _sendCts?.Cancel();
 
+    private void CopyMessage_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ChatMessage message })
+        {
+            return;
+        }
+
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(message.Content);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+    }
+
+    private void MessageRow_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { } row && row.FindName("CopyButton") is Button button)
+        {
+            button.Opacity = 1;
+        }
+    }
+
+    private void MessageRow_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { } row && row.FindName("CopyButton") is Button button)
+        {
+            button.Opacity = 0;
+        }
+    }
+
     private async Task SendAsync()
     {
         if (_active is null || string.IsNullOrWhiteSpace(PromptBox.Text))
@@ -782,4 +851,22 @@ public sealed class SidebarResizeGrip : Grid
     {
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
     }
+}
+
+/// <summary>
+/// Picks the user (plain-text, right-aligned bubble) vs. assistant
+/// (Markdown-rendered, no bubble) message template. React's own
+/// <c>MessageBubble.tsx</c> draws the same distinction — it only runs
+/// ReactMarkdown on the assistant branch, rendering the user's text as-is.
+/// </summary>
+public sealed class ChatMessageTemplateSelector : DataTemplateSelector
+{
+    public DataTemplate? UserTemplate { get; set; }
+    public DataTemplate? AssistantTemplate { get; set; }
+
+    protected override DataTemplate? SelectTemplateCore(object item) =>
+        item is ChatMessage { Role: "user" } ? UserTemplate : AssistantTemplate;
+
+    protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) =>
+        SelectTemplateCore(item);
 }

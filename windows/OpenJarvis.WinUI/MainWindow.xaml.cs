@@ -79,6 +79,10 @@ public sealed partial class MainWindow : Window
             "settings" => typeof(SettingsPage),
             "setup" => typeof(SetupPage),
             "approvals" => typeof(ApprovalsPage),
+            "dashboard" => typeof(DashboardPage),
+            "datasources" => typeof(DataSourcesPage),
+            "agents" => typeof(AgentsPage),
+            "logs" => typeof(LogsPage),
             _ => typeof(ChatPage)
         };
         ContentFrame.Navigate(page);

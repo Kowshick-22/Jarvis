@@ -5,8 +5,15 @@ using System.Text.Json.Serialization;
 
 namespace OpenJarvis.WinUI.Models;
 
-public sealed class ToolCallInfo
+public sealed class ToolCallInfo : INotifyPropertyChanged
 {
+    private string _status = "running";
+    private string _arguments = "";
+    private string? _result;
+    private double? _latency;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
 
@@ -14,16 +21,103 @@ public sealed class ToolCallInfo
     public string Tool { get; set; } = "";
 
     [JsonPropertyName("arguments")]
-    public string Arguments { get; set; } = "";
+    public string Arguments
+    {
+        get => _arguments;
+        set
+        {
+            if (_arguments == value) return;
+            _arguments = value;
+            OnPropertyChanged();
+        }
+    }
 
+    /// <summary>"running" while in flight, "success"/"error" once
+    /// <c>tool_call_end</c> arrives. Bound with <c>Mode=OneWay</c> in the
+    /// Expander-based tool-activity card so an already-rendered row's
+    /// status glyph/latency actually update in place — the previous flat
+    /// InfoBar template bound this with a default (OneTime) x:Bind, so a
+    /// row never visually left "running" once drawn.</summary>
     [JsonPropertyName("status")]
-    public string Status { get; set; } = "running";
+    public string Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsRunning));
+            OnPropertyChanged(nameof(IsDone));
+            OnPropertyChanged(nameof(StatusGlyph));
+            OnPropertyChanged(nameof(StatusBrushKey));
+        }
+    }
 
     [JsonPropertyName("result")]
-    public string? Result { get; set; }
+    public string? Result
+    {
+        get => _result;
+        set
+        {
+            if (_result == value) return;
+            _result = value;
+            OnPropertyChanged();
+        }
+    }
 
     [JsonPropertyName("latency")]
-    public double? Latency { get; set; }
+    public double? Latency
+    {
+        get => _latency;
+        set
+        {
+            if (_latency == value) return;
+            _latency = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LatencyLabel));
+        }
+    }
+
+    public bool IsRunning => Status == "running";
+    public bool IsDone => !IsRunning;
+
+    public string StatusGlyph => Status switch
+    {
+        "success" => "", // CheckMark
+        "error" => "", // Cancel
+        _ => "" // Sync (running)
+    };
+
+    public string StatusBrushKey => Status switch
+    {
+        "success" => "StatusSuccessBrush",
+        "error" => "StatusErrorBrush",
+        _ => "StatusRunningBrush"
+    };
+
+    /// <summary><see cref="Latency"/> arrives from the backend in seconds
+    /// (ToolExecutor's <c>latency_seconds</c>).</summary>
+    public string LatencyLabel => Latency is { } seconds
+        ? seconds >= 1 ? $"{seconds:0.0}s" : $"{seconds * 1000:0}ms"
+        : "";
+
+    public string ArgumentsPreview
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Arguments))
+            {
+                return "";
+            }
+
+            var oneLine = Arguments.ReplaceLineEndings(" ");
+            return oneLine.Length > 60 ? oneLine[..60] + "…" : oneLine;
+        }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public sealed class TokenUsage

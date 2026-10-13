@@ -62,6 +62,26 @@ public sealed class SettingsStore
             _ => SystemPrefersDark() ? ApplicationTheme.Dark : ApplicationTheme.Light
         };
 
+    /// <summary>
+    /// Light → Dark → system default → Light, matching the React client's
+    /// sidebar theme-toggle cycle (<c>Sidebar.tsx</c>'s <c>nextTheme</c>).
+    /// Applies and persists immediately; returns the new theme for callers
+    /// that want to update a status label.
+    /// </summary>
+    public string CycleTheme()
+    {
+        var next = CanonicalTheme(Current.Theme) switch
+        {
+            "Light" => "Dark",
+            "Dark" => "Default",
+            _ => "Light"
+        };
+        Current.Theme = next;
+        ApplyWindowTheme();
+        Persist();
+        return next;
+    }
+
     public ElementTheme CurrentElementTheme() =>
         CanonicalTheme(Current.Theme) switch
         {
