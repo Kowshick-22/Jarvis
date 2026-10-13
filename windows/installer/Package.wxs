@@ -11,7 +11,6 @@
     <MediaTemplate EmbedCab="yes" />
     <Feature Id="Main" Title="OpenJarvis" Level="1">
       <ComponentGroupRef Id="AppFiles" />
-      <ComponentRef Id="UninstallCleanup" />
     </Feature>
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="InstallFolder" Name="OpenJarvis" />
@@ -19,14 +18,5 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="AppStartMenu" Name="OpenJarvis" />
     </StandardDirectory>
-    <Component Id="UninstallCleanup" Directory="InstallFolder" Guid="2c9e4b11-7a55-4f0d-9e3c-1a2b3c4d5e6f">
-      <RegistryValue
-          Root="HKLM"
-          Key="Software\OpenJarvis"
-          Name="InstallDir"
-          Type="string"
-          Value="[InstallFolder]"
-          KeyPath="yes" />
-    </Component>
   </Package>
 </Wix>
