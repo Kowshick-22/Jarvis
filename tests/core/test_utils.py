@@ -14,6 +14,7 @@ import pytest
 
 from openjarvis.core.utils import (
     _windows_process_alive,
+    open_browser,
     process_alive,
     terminate_process,
 )
@@ -185,3 +186,74 @@ class TestTerminateProcess:
                 check=False,
             ),
         ]
+
+
+class TestOpenBrowser:
+    def test_windows_startfile_success(self) -> None:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=2&response_type=code"
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+            patch.object(os, "startfile", create=True) as mock_startfile,
+            patch("openjarvis.core.utils.webbrowser.open") as mock_webbrowser,
+            patch("builtins.print") as mock_print,
+        ):
+            open_browser(url)
+            mock_startfile.assert_called_once_with(url)
+            mock_webbrowser.assert_not_called()
+            mock_print.assert_not_called()
+
+    def test_windows_startfile_failure_falls_back_to_webbrowser(self) -> None:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=2&response_type=code"
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+            patch.object(
+                os, "startfile", side_effect=OSError("fail"), create=True
+            ) as mock_startfile,
+            patch(
+                "openjarvis.core.utils.webbrowser.open", return_value=True
+            ) as mock_webbrowser,
+            patch("builtins.print") as mock_print,
+        ):
+            open_browser(url)
+            mock_startfile.assert_called_once_with(url)
+            mock_webbrowser.assert_called_once_with(url)
+            mock_print.assert_not_called()
+
+    def test_non_windows_calls_webbrowser(self) -> None:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=2&response_type=code"
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Linux"),
+            patch(
+                "openjarvis.core.utils.webbrowser.open", return_value=True
+            ) as mock_webbrowser,
+            patch("builtins.print") as mock_print,
+        ):
+            open_browser(url)
+            mock_webbrowser.assert_called_once_with(url)
+            mock_print.assert_not_called()
+
+    def test_fallback_prints_url_when_opening_fails(self) -> None:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=2&response_type=code"
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Linux"),
+            patch(
+                "openjarvis.core.utils.webbrowser.open", return_value=False
+            ) as mock_webbrowser,
+            patch("builtins.print") as mock_print,
+        ):
+            open_browser(url)
+            mock_webbrowser.assert_called_once_with(url)
+            mock_print.assert_called_once_with(url)
+
+    def test_fallback_prints_url_on_exception(self) -> None:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=2&response_type=code"
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Linux"),
+            patch(
+                "openjarvis.core.utils.webbrowser.open",
+                side_effect=RuntimeError("no display"),
+            ),
+            patch("builtins.print") as mock_print,
+        ):
+            open_browser(url)
+            mock_print.assert_called_once_with(url)

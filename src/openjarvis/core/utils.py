@@ -96,23 +96,29 @@ def get_python_executable() -> str:
 
 
 def open_browser(url: str) -> None:
-    """Open *url* in the user's default browser, with a Windows fast-path.
+    """Open *url* in the user's default browser with a terminal fallback.
 
-    :func:`webbrowser.open` is the cross-platform default, but on Windows it
-    sometimes blocks or fails inside a console host. ``cmd /c start "" "URL"``
-    is the canonical Windows incantation that hands the URL to the OS shell
-    and returns immediately. We try that first on Windows and fall back to
-    :func:`webbrowser.open` if the subprocess spawn fails.
+    On Windows, uses :func:`os.startfile` or :func:`webbrowser.open` without
+    spawning a ``cmd.exe`` shell process, preventing URLs with query
+    parameters from being split on ``&``. Falls back to printing the URL
+    to the terminal if opening the browser fails.
     """
-    if platform.system() == "Windows":
+    opened = False
+    if platform.system() == "Windows" and hasattr(os, "startfile"):
         try:
-            # The empty title argument after ``start`` is required: ``start``
-            # treats a single quoted argument as a window title, not a URL.
-            subprocess.run(["cmd", "/c", "start", "", url], check=False)
-            return
-        except Exception:  # noqa: BLE001 - any spawn failure -> fall back
+            os.startfile(url)  # type: ignore[attr-defined]
+            opened = True
+        except Exception:  # noqa: BLE001
             pass
-    webbrowser.open(url)
+
+    if not opened:
+        try:
+            opened = bool(webbrowser.open(url))
+        except Exception:  # noqa: BLE001
+            opened = False
+
+    if not opened:
+        print(url)
 
 
 def process_alive(pid: int | None) -> bool:
