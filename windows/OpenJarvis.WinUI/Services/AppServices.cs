@@ -11,6 +11,7 @@ public sealed class AppServices
     public required BackendSupervisor Supervisor { get; init; }
     public required UpdateChecker Updates { get; init; }
     public required LogService Logs { get; init; }
+    public required SpeechService Speech { get; init; }
     public string UpdateManifestUrl { get; init; } = "";
 
     public static AppServices Create()
@@ -34,6 +35,7 @@ public sealed class AppServices
             Supervisor = supervisor,
             Updates = new UpdateChecker(),
             Logs = new LogService(supervisor),
+            Speech = new SpeechService(),
             UpdateManifestUrl = ReadUpdateManifestUrl()
         };
     }

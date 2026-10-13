@@ -5,6 +5,9 @@
     xmlns:views="using:OpenJarvis.WinUI.Views"
     Title="OpenJarvis">
     <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" SizeChanged="RootGrid_SizeChanged">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="CommandPaletteAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
         <Grid x:Name="ShellGrid" Visibility="Collapsed">
             <NavigationView
                 x:Name="NavView"
@@ -93,5 +96,7 @@
         </Grid>
 
         <views:SetupView x:Name="SetupOverlay" />
+
+        <views:CommandPalette x:Name="Palette" Visibility="Collapsed" ItemActivated="Palette_ItemActivated" />
     </Grid>
 </Window>

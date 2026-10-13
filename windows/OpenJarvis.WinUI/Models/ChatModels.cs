@@ -346,6 +346,13 @@ public sealed class AppSettings
     public double NavPaneWidth { get; set; }
     public bool AllowCloud { get; set; }
     public bool LocalSetupConsented { get; set; }
+    public bool MemoryContextEnabled { get; set; } = true;
+    public string MemoryBackend { get; set; } = "sqlite";
+    public int MemoryTopK { get; set; } = 5;
+    public double MemoryMinScore { get; set; } = 0.1;
+    public int MemoryMaxTokens { get; set; } = 2048;
+    public bool VoiceOutputEnabled { get; set; }
+    public bool VoiceAutoplay { get; set; }
 }
 
 public enum SetupStep

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using OpenJarvis.WinUI.Models;
 using OpenJarvis.WinUI.Services;
 
 namespace OpenJarvis.WinUI.Views;
@@ -55,6 +56,9 @@ public sealed partial class SettingsPage : Page
         TemperatureBox.Value = settings.Temperature;
         MaxTokensBox.Value = settings.MaxTokens;
         CloudSwitch.IsOn = settings.AllowCloud;
+        VoiceOutputSwitch.IsOn = settings.VoiceOutputEnabled;
+        VoiceAutoplaySwitch.IsOn = settings.VoiceAutoplay;
+        VoiceAutoplaySwitch.IsEnabled = settings.VoiceOutputEnabled;
         foreach (ComboBoxItem item in ThemeBox.Items)
         {
             if (item.Tag as string == settings.Theme)
@@ -85,9 +89,74 @@ public sealed partial class SettingsPage : Page
         WindowsAiList.ItemsSource = WindowsAiAvailability.Probe()
             .Select(s => $"{s.Api}: {s.ReadyState}. {s.Detail}")
             .ToList();
+
+        await RefreshTavilyStatusAsync();
+        await LoadMemoryConfigAsync();
+    }
+
+    /// <summary>The server is the only source of truth here — there is no
+    /// write endpoint for memory config, so nothing can drift from it.</summary>
+    private async Task LoadMemoryConfigAsync()
+    {
+        var config = await App.Services.Api.GetMemoryConfigAsync(CancellationToken.None);
+        _loadedMemoryConfig = config;
+        if (config is null)
+        {
+            MemoryStatusIcon.Glyph = ""; // Info
+            MemoryStatusText.Text = "Could not reach the backend to read memory configuration.";
+            return;
+        }
+
+        MemoryStatusIcon.Glyph = config.Available ? "" : "";
+        MemoryStatusText.Text = config.Available
+            ? $"{config.BackendType} backend is available."
+            : config.Detail ?? "Memory backend is unavailable.";
+
+        MemoryContextSwitch.IsOn = config.ContextFromMemory;
+        foreach (ComboBoxItem item in MemoryBackendBox.Items)
+        {
+            if (item.Tag as string == config.BackendType)
+            {
+                MemoryBackendBox.SelectedItem = item;
+            }
+        }
+
+        MemoryBackendBox.SelectedIndex = MemoryBackendBox.SelectedIndex < 0 ? 0 : MemoryBackendBox.SelectedIndex;
+        MemoryTopKSlider.Value = config.ContextTopK;
+        MemoryMinScoreSlider.Value = config.ContextMinScore;
+        MemoryMaxTokensSlider.Value = config.ContextMaxTokens;
+    }
+
+    private async Task RefreshTavilyStatusAsync()
+    {
+        var status = await App.Services.Api.GetToolCredentialStatusAsync("web_search", CancellationToken.None);
+        var configured = status.TryGetValue("TAVILY_API_KEY", out var has) && has;
+        TavilyStatusText.Text = configured ? "Connected" : "Not configured";
+        TavilyRemoveButton.Visibility = configured ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void TavilyKeyBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var value = TavilyKeyBox.Password.Trim();
+        TavilyKeyBox.Password = "";
+        if (value.Length == 0)
+        {
+            return;
+        }
+
+        await App.Services.Api.SaveToolCredentialsAsync(
+            "web_search", new Dictionary<string, string> { ["TAVILY_API_KEY"] = value }, CancellationToken.None);
+        await RefreshTavilyStatusAsync();
+    }
+
+    private async void TavilyRemove_Click(object sender, RoutedEventArgs e)
+    {
+        await App.Services.Api.DeleteToolCredentialAsync("web_search", "TAVILY_API_KEY", CancellationToken.None);
+        await RefreshTavilyStatusAsync();
     }
 
     private bool _themeReady;
+    private MemoryConfigInfo? _loadedMemoryConfig;
 
     private void ThemeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -111,6 +180,15 @@ public sealed partial class SettingsPage : Page
         // Applied on Save so the user makes an explicit choice.
     }
 
+    private void VoiceOutputSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        VoiceAutoplaySwitch.IsEnabled = VoiceOutputSwitch.IsOn;
+        if (!VoiceOutputSwitch.IsOn)
+        {
+            VoiceAutoplaySwitch.IsOn = false;
+        }
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var settings = App.Services.Settings.Current;
@@ -125,6 +203,34 @@ public sealed partial class SettingsPage : Page
         {
             App.Services.Supervisor.ReportUiError(
                 "Cloud inference is enabled. Restart OpenJarvis so jarvis serve attaches cloud engines.");
+        }
+
+        settings.VoiceOutputEnabled = VoiceOutputSwitch.IsOn;
+        settings.VoiceAutoplay = VoiceAutoplaySwitch.IsOn;
+
+        var memoryBackend = (MemoryBackendBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "sqlite";
+        var memoryChanged =
+            _loadedMemoryConfig is null ||
+            _loadedMemoryConfig.ContextFromMemory != MemoryContextSwitch.IsOn ||
+            _loadedMemoryConfig.BackendType != memoryBackend ||
+            _loadedMemoryConfig.ContextTopK != (int)MemoryTopKSlider.Value ||
+            Math.Abs(_loadedMemoryConfig.ContextMinScore - MemoryMinScoreSlider.Value) > 0.001 ||
+            _loadedMemoryConfig.ContextMaxTokens != (int)MemoryMaxTokensSlider.Value;
+
+        settings.MemoryContextEnabled = MemoryContextSwitch.IsOn;
+        settings.MemoryBackend = memoryBackend;
+        settings.MemoryTopK = (int)MemoryTopKSlider.Value;
+        settings.MemoryMinScore = MemoryMinScoreSlider.Value;
+        settings.MemoryMaxTokens = (int)MemoryMaxTokensSlider.Value;
+        App.Services.Settings.Persist();
+
+        if (memoryChanged)
+        {
+            TomlSettings.SetContextFromMemory(settings.MemoryContextEnabled);
+            TomlSettings.SetMemoryRetrieval(
+                memoryBackend, settings.MemoryTopK, settings.MemoryMinScore, settings.MemoryMaxTokens);
+            App.Services.Supervisor.ReportUiError(
+                "Memory settings are saved. Restart OpenJarvis for the new retrieval settings to take effect.");
         }
     }
 }

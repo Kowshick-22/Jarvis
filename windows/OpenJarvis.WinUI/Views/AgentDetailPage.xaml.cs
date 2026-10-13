@@ -25,6 +25,7 @@ public sealed partial class AgentDetailPage : Page
         }
 
         _agentId = agentId;
+        MessagingTab.AgentId = agentId;
         _ = RefreshAllAsync();
         _timer.Tick += async (_, _) => await RefreshAllAsync();
         _timer.Start();

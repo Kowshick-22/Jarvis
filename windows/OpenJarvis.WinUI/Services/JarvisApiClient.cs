@@ -584,4 +584,265 @@ public sealed class JarvisApiClient
             return [];
         }
     }
+
+    // ── Memory (/v1/memory/*) ───────────────────────────────────────
+
+    public async Task<bool> StoreMemoryAsync(
+        string content, object? metadata, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/memory/store", new { content, metadata }, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<MemorySearchResult>> SearchMemoryAsync(
+        string query, int topK, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/memory/search", new { query, top_k = topK }, cancellationToken);
+            var payload = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+            return payload.TryGetProperty("results", out var results)
+                ? results.Deserialize<List<MemorySearchResult>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<MemoryStats?> GetMemoryStatsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<MemoryStats>($"{_base}/v1/memory/stats", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Read-only — there is no matching write endpoint. Injection
+    /// settings are saved via <c>TomlSettings</c> into config.toml instead
+    /// and need a backend restart to take effect.</summary>
+    public async Task<MemoryConfigInfo?> GetMemoryConfigAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<MemoryConfigInfo>($"{_base}/v1/memory/config", cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<MemoryIndexResult?> IndexMemoryPathAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/memory/index", new { path }, cancellationToken);
+            return await response.Content.ReadFromJsonAsync<MemoryIndexResult>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ── Deep Research (/api/research) ───────────────────────────────
+
+    /// <summary>SSE frames have no <c>event:</c> line and no <c>[DONE]</c>
+    /// sentinel — just a terminal <c>{"type":"done"}</c> JSON frame followed
+    /// by the stream closing. <see cref="StreamSseAsync"/> already tolerates
+    /// that shape; callers switch on each frame's <c>Data</c> JSON "type".</summary>
+    public IAsyncEnumerable<SseEvent> StreamResearchAsync(
+        object request, CancellationToken cancellationToken) =>
+        StreamSseAsync(
+            $"{_base}/api/research",
+            request,
+            "Could not reach the OpenJarvis backend for Deep Research.",
+            "The research request timed out while connecting to the backend.",
+            "Research",
+            cancellationToken);
+
+    // ── Messaging channels (/v1/managed-agents/{id}/channels, /v1/channels/sendblue/*) ──
+
+    public async Task<IReadOnlyList<ChannelBinding>> GetChannelBindingsAsync(
+        string agentId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await _http.GetFromJsonAsync<JsonElement>(
+                $"{_base}/v1/managed-agents/{agentId}/channels", cancellationToken);
+            return payload.TryGetProperty("bindings", out var bindings)
+                ? bindings.Deserialize<List<ChannelBinding>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<ChannelBinding?> BindChannelAsync(
+        string agentId, string channelType, object? config, string routingMode,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/managed-agents/{agentId}/channels",
+                new { channel_type = channelType, config, routing_mode = routingMode },
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ChannelBinding>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> UnbindChannelAsync(
+        string agentId, string bindingId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.DeleteAsync(
+                $"{_base}/v1/managed-agents/{agentId}/channels/{bindingId}", cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<SendBlueVerifyResult?> VerifySendBlueAsync(
+        string apiKeyId, string apiSecretKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/channels/sendblue/verify",
+                new { api_key_id = apiKeyId, api_secret_key = apiSecretKey },
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<SendBlueVerifyResult>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> RegisterSendBlueWebhookAsync(
+        string apiKeyId, string apiSecretKey, string webhookUrl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/channels/sendblue/register-webhook",
+                new { api_key_id = apiKeyId, api_secret_key = apiSecretKey, webhook_url = webhookUrl },
+                cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // ── Tool/channel credentials (/v1/tools/{tool}/credentials) ─────
+    // Separate mechanism from cloud-keys.env: these persist to
+    // credentials.toml via core/credentials.py's save_credential(), take
+    // effect immediately (no restart), and cover Tavily plus every
+    // non-live messaging channel (Telegram, Discord, email, etc.).
+
+    public async Task<IReadOnlyList<string>> SaveToolCredentialsAsync(
+        string toolName, IDictionary<string, string> keys, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/tools/{toolName}/credentials", keys, cancellationToken);
+            var payload = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+            return payload.TryGetProperty("saved", out var saved)
+                ? saved.Deserialize<List<string>>() ?? []
+                : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<bool> DeleteToolCredentialAsync(
+        string toolName, string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.DeleteAsync(
+                $"{_base}/v1/tools/{toolName}/credentials/{key}", cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<Dictionary<string, bool>> GetToolCredentialStatusAsync(
+        string toolName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<Dictionary<string, bool>>(
+                $"{_base}/v1/tools/{toolName}/credentials/status", cancellationToken) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    // ── Cloud API keys (/v1/cloud/reload) ────────────────────────────
+    // Sets os.environ in the running server process immediately; does not
+    // itself touch cloud-keys.env — the caller persists that file via
+    // CloudKeysStore separately for the setting to survive a restart.
+
+    public async Task<CloudReloadResult?> ReloadCloudKeysAsync(
+        IDictionary<string, string> keys, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{_base}/v1/cloud/reload", new { keys }, cancellationToken);
+            return await response.Content.ReadFromJsonAsync<CloudReloadResult>(cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

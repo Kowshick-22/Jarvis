@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:OpenJarvis.WinUI.Models"
-    xmlns:converters="using:OpenJarvis.WinUI.Converters">
+    xmlns:converters="using:OpenJarvis.WinUI.Converters"
+    xmlns:views="using:OpenJarvis.WinUI.Views">
     <Page.Resources>
         <converters:StatusBrushConverter x:Key="StatusBrushConverter" />
         <converters:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter" />
@@ -119,6 +120,12 @@
             <TabViewItem Header="Memory" IsClosable="False">
                 <ScrollViewer Padding="0,16,0,0">
                     <TextBlock x:Name="MemoryText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                </ScrollViewer>
+            </TabViewItem>
+
+            <TabViewItem Header="Messaging" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,24">
+                    <views:MessagingChannelsPanel x:Name="MessagingTab" MaxWidth="700" />
                 </ScrollViewer>
             </TabViewItem>
 

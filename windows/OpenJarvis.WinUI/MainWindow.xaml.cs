@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using OpenJarvis.WinUI.Models;
 using OpenJarvis.WinUI.Services;
 using OpenJarvis.WinUI.Views;
 
@@ -253,6 +254,65 @@ public sealed partial class MainWindow : Window
         }
 
         NavView.SelectedItem = NavView.MenuItems[0];
+    }
+
+    private void CommandPaletteAccelerator_Invoked(
+        KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        if (ShellGrid.Visibility == Visibility.Visible)
+        {
+            Palette.Open();
+        }
+    }
+
+    private async void Palette_ItemActivated(object? sender, PaletteItem item)
+    {
+        switch (item.Kind)
+        {
+            case PaletteItemKind.Page when item.Payload is string tag:
+                if (tag == "settings")
+                {
+                    NavView.SelectedItem = NavView.SettingsItem;
+                }
+                else
+                {
+                    var target = NavView.MenuItems
+                        .OfType<NavigationViewItem>()
+                        .FirstOrDefault(i => i.Tag as string == tag);
+                    if (target is not null)
+                    {
+                        NavView.SelectedItem = target;
+                    }
+                }
+
+                break;
+
+            case PaletteItemKind.Conversation when item.Payload is Conversation conversation:
+                App.Services.Conversations.Select(conversation);
+                NavView.SelectedItem = NavView.MenuItems[0];
+                break;
+
+            case PaletteItemKind.Model when item.Payload is string modelId:
+                NavView.SelectedItem = NavView.MenuItems[0];
+                App.Services.Settings.Current.SelectedModel = modelId;
+                App.Services.Settings.Save();
+                try
+                {
+                    await App.Services.Supervisor.RestartWithModelAsync(modelId, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    App.Services.Supervisor.ReportUiError(ex.Message);
+                }
+
+                break;
+
+            case PaletteItemKind.Agent when item.Payload is string agentId:
+                NavigateTo("agents");
+                ContentFrame.Navigate(typeof(AgentDetailPage), agentId);
+                break;
+        }
     }
 
     private void NavigateTo(string tag)

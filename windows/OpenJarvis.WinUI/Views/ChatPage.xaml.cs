@@ -72,6 +72,8 @@ public sealed partial class ChatPage : Page
 
     private void SyncSendButton()
     {
+        SendButton.Visibility = _sending ? Visibility.Collapsed : Visibility.Visible;
+        CancelButton.Visibility = _sending ? Visibility.Visible : Visibility.Collapsed;
         SendButton.IsEnabled = !_sending && App.Services.Supervisor.Status.Ready;
     }
 
@@ -109,6 +111,7 @@ public sealed partial class ChatPage : Page
 
         ReloadMessages();
         SyncSendButton();
+        MicButton.Visibility = SpeechService.IsRecognitionAvailable() ? Visibility.Visible : Visibility.Collapsed;
         await RefreshServerAsync();
     }
 
@@ -390,19 +393,76 @@ public sealed partial class ChatPage : Page
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
     }
 
-    private void MessageRow_PointerEntered(object sender, PointerRoutedEventArgs e)
+    private void MessageRow_PointerEntered(object sender, PointerRoutedEventArgs e) =>
+        SetHoverButtonsOpacity(sender, 1);
+
+    private void MessageRow_PointerExited(object sender, PointerRoutedEventArgs e) =>
+        SetHoverButtonsOpacity(sender, 0);
+
+    private static void SetHoverButtonsOpacity(object sender, double opacity)
     {
-        if (sender is FrameworkElement { } row && row.FindName("CopyButton") is Button button)
+        if (sender is not FrameworkElement row)
         {
-            button.Opacity = 1;
+            return;
+        }
+
+        if (row.FindName("CopyButton") is Button copy)
+        {
+            copy.Opacity = opacity;
+        }
+
+        if (row.FindName("SpeakButton") is Button speak)
+        {
+            speak.Opacity = opacity > 0 && App.Services.Settings.Current.VoiceOutputEnabled ? opacity : 0;
         }
     }
 
-    private void MessageRow_PointerExited(object sender, PointerRoutedEventArgs e)
+    private async void SpeakMessage_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { } row && row.FindName("CopyButton") is Button button)
+        if (sender is not FrameworkElement { Tag: ChatMessage message })
         {
-            button.Opacity = 0;
+            return;
+        }
+
+        if (App.Services.Speech.IsSpeaking)
+        {
+            App.Services.Speech.StopSpeaking();
+            return;
+        }
+
+        try
+        {
+            await App.Services.Speech.SpeakAsync(message.Content, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            App.Services.Supervisor.ReportUiError(ex.Message);
+        }
+    }
+
+    private async void Mic_Click(object sender, RoutedEventArgs e)
+    {
+        MicButton.IsEnabled = false;
+        MicIcon.Glyph = ""; // Sync — listening
+        try
+        {
+            var text = await App.Services.Speech.RecognizeOnceAsync(CancellationToken.None);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
+                    ? text
+                    : $"{PromptBox.Text} {text}";
+                PromptBox.SelectionStart = PromptBox.Text.Length;
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Services.Supervisor.ReportUiError(ex.Message);
+        }
+        finally
+        {
+            MicIcon.Glyph = "";
+            MicButton.IsEnabled = true;
         }
     }
 
@@ -441,26 +501,44 @@ public sealed partial class ChatPage : Page
         _sendCts = new CancellationTokenSource();
         _sending = true;
         SyncSendButton();
-        CancelButton.IsEnabled = true;
-        var payload = new
-        {
-            model = ResolveModelId(
-                SelectedModelId() ?? App.Services.Settings.Current.SelectedModel),
-            stream = true,
-            temperature = App.Services.Settings.Current.Temperature,
-            max_tokens = App.Services.Settings.Current.MaxTokens,
-            messages = active.Messages
-                .Where(m => m != assistant)
-                .Select(m => new { role = m.Role, content = m.Content })
-                .ToList()
-        };
+        DeepResearchToggle.IsEnabled = false;
+        var isResearch = DeepResearchToggle.IsOn;
 
         try
         {
-            await foreach (var evt in App.Services.Api.StreamChatAsync(payload, _sendCts.Token))
+            if (isResearch)
             {
-                ApplySse(assistant, evt);
-                MessageList.ScrollIntoView(assistant);
+                ResearchTimeline.Reset();
+                await foreach (var evt in App.Services.Api.StreamResearchAsync(
+                    new { query = text, model = ResolveModelId(
+                        SelectedModelId() ?? App.Services.Settings.Current.SelectedModel) },
+                    _sendCts.Token))
+                {
+                    ApplyResearchSse(assistant, evt);
+                    MessageList.ScrollIntoView(assistant);
+                }
+            }
+            else
+            {
+                ResearchTimeline.Hide();
+                var payload = new
+                {
+                    model = ResolveModelId(
+                        SelectedModelId() ?? App.Services.Settings.Current.SelectedModel),
+                    stream = true,
+                    temperature = App.Services.Settings.Current.Temperature,
+                    max_tokens = App.Services.Settings.Current.MaxTokens,
+                    messages = active.Messages
+                        .Where(m => m != assistant)
+                        .Select(m => new { role = m.Role, content = m.Content })
+                        .ToList()
+                };
+
+                await foreach (var evt in App.Services.Api.StreamChatAsync(payload, _sendCts.Token))
+                {
+                    ApplySse(assistant, evt);
+                    MessageList.ScrollIntoView(assistant);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -479,11 +557,82 @@ public sealed partial class ChatPage : Page
             assistant.IsPending = false;
             _sending = false;
             SyncSendButton();
-            CancelButton.IsEnabled = false;
+            DeepResearchToggle.IsEnabled = true;
+            ResearchTimeline.Finish();
             if (App.Services.Conversations.Items.Contains(active))
             {
                 App.Services.Conversations.Touch(active);
             }
+        }
+    }
+
+    /// <summary>Frames have no <c>event:</c> line — switch on the parsed
+    /// JSON's <c>type</c> field. See <c>ResearchModels.cs</c> for the full
+    /// set of frame shapes.</summary>
+    private void ApplyResearchSse(ChatMessage assistant, SseEvent evt)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(evt.Data);
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+            switch (type)
+            {
+                case "search_call":
+                    var query = root.TryGetProperty("arguments", out var args) &&
+                        args.TryGetProperty("query", out var q)
+                        ? q.GetString() ?? "Searching…"
+                        : "Searching…";
+                    ResearchTimeline.AddSearchCall(query);
+                    break;
+
+                case "search_result":
+                    var numHits = root.TryGetProperty("num_hits", out var hits) ? hits.GetInt32() : 0;
+                    var titles = root.TryGetProperty("top_titles", out var topTitles)
+                        ? topTitles.EnumerateArray().Select(x => x.GetString() ?? "").ToList()
+                        : [];
+                    ResearchTimeline.CompleteLatestSearch(numHits, titles);
+                    break;
+
+                case "synthesis":
+                    ResearchTimeline.BeginSynthesizing();
+                    if (root.TryGetProperty("text", out var text))
+                    {
+                        assistant.Content += text.GetString();
+                        assistant.IsPending = assistant.Content.Length == 0;
+                    }
+
+                    break;
+
+                case "final_sources":
+                case "done":
+                    if (root.TryGetProperty("sources", out var sources) && sources.GetArrayLength() > 0)
+                    {
+                        var lines = sources.EnumerateArray()
+                            .Select(s => s.TryGetProperty("title", out var title) ? title.GetString() : null)
+                            .Where(t => !string.IsNullOrWhiteSpace(t))
+                            .Select((t, i) => $"{i + 1}. {t}")
+                            .ToList();
+                        if (lines.Count > 0 && !assistant.Content.Contains("\n\n## Sources", StringComparison.Ordinal))
+                        {
+                            assistant.Content += "\n\n## Sources\n" + string.Join("\n", lines);
+                        }
+                    }
+
+                    break;
+
+                case "error":
+                    if (root.TryGetProperty("message", out var message))
+                    {
+                        assistant.Content += $"\n\n_Research error: {message.GetString()}_";
+                    }
+
+                    break;
+            }
+        }
+        catch
+        {
+            // Non-JSON keepalive chunks are ignored.
         }
     }
 

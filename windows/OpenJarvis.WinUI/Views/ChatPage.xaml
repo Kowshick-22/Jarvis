@@ -66,17 +66,30 @@
                         CodePadding="12,8"
                         InlineCodeBackground="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         QuoteBorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                    <Button
-                        x:Name="CopyButton"
-                        Tag="{x:Bind}"
-                        HorizontalAlignment="Left"
-                        Opacity="0"
-                        Style="{StaticResource FlatIconButtonStyle}"
-                        Click="CopyMessage_Click"
-                        ToolTipService.ToolTip="Copy message"
-                        AutomationProperties.Name="Copy message">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button
+                            x:Name="CopyButton"
+                            Tag="{x:Bind}"
+                            HorizontalAlignment="Left"
+                            Opacity="0"
+                            Style="{StaticResource FlatIconButtonStyle}"
+                            Click="CopyMessage_Click"
+                            ToolTipService.ToolTip="Copy message"
+                            AutomationProperties.Name="Copy message">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                        </Button>
+                        <Button
+                            x:Name="SpeakButton"
+                            Tag="{x:Bind}"
+                            HorizontalAlignment="Left"
+                            Opacity="0"
+                            Style="{StaticResource FlatIconButtonStyle}"
+                            Click="SpeakMessage_Click"
+                            ToolTipService.ToolTip="Read aloud"
+                            AutomationProperties.Name="Read message aloud">
+                            <FontIcon Glyph="&#xE767;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </DataTemplate>
@@ -99,6 +112,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Button
                     VerticalAlignment="Bottom"
@@ -117,6 +131,15 @@
                     HorizontalAlignment="Left"
                     SelectionChanged="ModelBox_SelectionChanged"
                     AutomationProperties.Name="Model" />
+                <ToggleSwitch
+                    x:Name="DeepResearchToggle"
+                    Grid.Column="2"
+                    Header="Deep Research"
+                    OnContent="On"
+                    OffContent="Off"
+                    VerticalAlignment="Bottom"
+                    ToolTipService.ToolTip="Research the web with a multi-step agent instead of a direct chat reply"
+                    AutomationProperties.Name="Deep Research mode" />
             </Grid>
 
             <ListView
@@ -127,117 +150,157 @@
                 ItemTemplateSelector="{StaticResource MessageTemplateSelector}"
                 AutomationProperties.Name="Messages" />
 
-            <ItemsControl x:Name="ToolList" Grid.Row="2" Margin="0,0,0,8" AutomationProperties.Name="Tool activity">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:ToolCallInfo">
-                        <Expander
-                            Margin="0,0,0,4"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch">
-                            <Expander.Header>
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <ProgressRing
-                                        Grid.Column="0"
-                                        Width="14"
-                                        Height="14"
-                                        IsActive="{x:Bind IsRunning, Mode=OneWay}"
-                                        Visibility="{x:Bind IsRunning, Mode=OneWay}" />
-                                    <FontIcon
-                                        Grid.Column="0"
-                                        FontSize="14"
-                                        Glyph="{x:Bind StatusGlyph, Mode=OneWay}"
-                                        Foreground="{x:Bind StatusBrushKey, Mode=OneWay, Converter={StaticResource StatusBrushConverter}}"
-                                        Visibility="{x:Bind IsDone, Mode=OneWay}" />
-                                    <TextBlock
-                                        Grid.Column="1"
-                                        Text="{x:Bind Tool, Mode=OneWay}"
-                                        FontWeight="SemiBold"
-                                        VerticalAlignment="Center" />
-                                    <TextBlock
-                                        Grid.Column="2"
-                                        Text="{x:Bind ArgumentsPreview, Mode=OneWay}"
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        Opacity="0.7"
-                                        TextTrimming="CharacterEllipsis"
-                                        VerticalAlignment="Center" />
-                                    <TextBlock
-                                        Grid.Column="3"
-                                        Text="{x:Bind LatencyLabel, Mode=OneWay}"
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        VerticalAlignment="Center" />
-                                </Grid>
-                            </Expander.Header>
-                            <StackPanel Spacing="8" Padding="4,8,4,4">
-                                <TextBlock Text="args" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
-                                <Border Style="{StaticResource CardBorderStyle}" Padding="8" MaxHeight="160">
-                                    <ScrollViewer VerticalScrollMode="Auto">
-                                        <TextBlock
-                                            Text="{x:Bind Arguments, Mode=OneWay}"
-                                            FontFamily="Consolas"
-                                            TextWrapping="Wrap"
-                                            IsTextSelectionEnabled="True" />
-                                    </ScrollViewer>
-                                </Border>
-                                <TextBlock Text="result" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
-                                <Border Style="{StaticResource CardBorderStyle}" Padding="8" MaxHeight="180">
-                                    <ScrollViewer VerticalScrollMode="Auto">
-                                        <TextBlock
-                                            Text="{x:Bind Result, Mode=OneWay}"
-                                            FontFamily="Consolas"
-                                            TextWrapping="Wrap"
-                                            IsTextSelectionEnabled="True" />
-                                    </ScrollViewer>
-                                </Border>
-                            </StackPanel>
-                        </Expander>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                <views:ResearchTimelinePanel x:Name="ResearchTimeline" />
 
-            <Grid Grid.Row="3">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBox
-                    x:Name="PromptBox"
-                    PlaceholderText="Ask OpenJarvis"
-                    AcceptsReturn="True"
-                    TextWrapping="Wrap"
-                    Height="88"
-                    AccessKey="M"
-                    AutomationProperties.Name="Message"
-                    KeyDown="PromptBox_KeyDown" />
-                <Button
-                    x:Name="SendButton"
-                    Grid.Column="1"
-                    Content="Send"
-                    MinWidth="88"
-                    MinHeight="40"
-                    Margin="8,24,0,0"
-                    Click="Send_Click"
-                    IsEnabled="False"
-                    AccessKey="S"
-                    AutomationProperties.Name="Send message" />
-                <Button
-                    x:Name="CancelButton"
-                    Grid.Column="2"
-                    Content="Stop"
-                    MinWidth="88"
-                    MinHeight="40"
-                    Margin="8,24,0,0"
-                    Click="Cancel_Click"
-                    IsEnabled="False"
-                    AccessKey="X"
-                    AutomationProperties.Name="Stop generation" />
-            </Grid>
+                <ItemsControl x:Name="ToolList" AutomationProperties.Name="Tool activity">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ToolCallInfo">
+                            <Expander
+                                Margin="0,0,0,4"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch">
+                                <Expander.Header>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ProgressRing
+                                            Grid.Column="0"
+                                            Width="14"
+                                            Height="14"
+                                            IsActive="{x:Bind IsRunning, Mode=OneWay}"
+                                            Visibility="{x:Bind IsRunning, Mode=OneWay}" />
+                                        <FontIcon
+                                            Grid.Column="0"
+                                            FontSize="14"
+                                            Glyph="{x:Bind StatusGlyph, Mode=OneWay}"
+                                            Foreground="{x:Bind StatusBrushKey, Mode=OneWay, Converter={StaticResource StatusBrushConverter}}"
+                                            Visibility="{x:Bind IsDone, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            Text="{x:Bind Tool, Mode=OneWay}"
+                                            FontWeight="SemiBold"
+                                            VerticalAlignment="Center" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            Text="{x:Bind ArgumentsPreview, Mode=OneWay}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Opacity="0.7"
+                                            TextTrimming="CharacterEllipsis"
+                                            VerticalAlignment="Center" />
+                                        <TextBlock
+                                            Grid.Column="3"
+                                            Text="{x:Bind LatencyLabel, Mode=OneWay}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            VerticalAlignment="Center" />
+                                    </Grid>
+                                </Expander.Header>
+                                <StackPanel Spacing="8" Padding="4,8,4,4">
+                                    <TextBlock Text="args" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                    <Border Style="{StaticResource CardBorderStyle}" Padding="8" MaxHeight="160">
+                                        <ScrollViewer VerticalScrollMode="Auto">
+                                            <TextBlock
+                                                Text="{x:Bind Arguments, Mode=OneWay}"
+                                                FontFamily="Consolas"
+                                                TextWrapping="Wrap"
+                                                IsTextSelectionEnabled="True" />
+                                        </ScrollViewer>
+                                    </Border>
+                                    <TextBlock Text="result" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                    <Border Style="{StaticResource CardBorderStyle}" Padding="8" MaxHeight="180">
+                                        <ScrollViewer VerticalScrollMode="Auto">
+                                            <TextBlock
+                                                Text="{x:Bind Result, Mode=OneWay}"
+                                                FontFamily="Consolas"
+                                                TextWrapping="Wrap"
+                                                IsTextSelectionEnabled="True" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </StackPanel>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <Border
+                Grid.Row="3"
+                Style="{StaticResource CardBorderStyle}"
+                Padding="12,8,12,12"
+                CornerRadius="16"
+                Margin="0,4,0,0">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBox
+                        x:Name="PromptBox"
+                        PlaceholderText="Ask OpenJarvis"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        MinHeight="56"
+                        MaxHeight="200"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="4,8,4,4"
+                        AccessKey="M"
+                        AutomationProperties.Name="Message"
+                        KeyDown="PromptBox_KeyDown" />
+                    <Grid Grid.Row="1" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            x:Name="MicButton"
+                            Grid.Column="0"
+                            Style="{StaticResource FlatIconButtonStyle}"
+                            Click="Mic_Click"
+                            VerticalAlignment="Center"
+                            ToolTipService.ToolTip="Dictate a message"
+                            AutomationProperties.Name="Dictate a message">
+                            <FontIcon x:Name="MicIcon" Glyph="&#xE720;" FontSize="16" />
+                        </Button>
+                        <Button
+                            x:Name="SendButton"
+                            Grid.Column="2"
+                            Style="{StaticResource AccentButtonStyle}"
+                            CornerRadius="18"
+                            MinWidth="96"
+                            MinHeight="36"
+                            Click="Send_Click"
+                            IsEnabled="False"
+                            AccessKey="S"
+                            AutomationProperties.Name="Send message">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE724;" FontSize="14" />
+                                <TextBlock Text="Send" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            x:Name="CancelButton"
+                            Grid.Column="2"
+                            CornerRadius="18"
+                            MinWidth="96"
+                            MinHeight="36"
+                            Visibility="Collapsed"
+                            Click="Cancel_Click"
+                            AccessKey="X"
+                            AutomationProperties.Name="Stop generation">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE71A;" FontSize="14" />
+                                <TextBlock Text="Stop" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 </Page>
