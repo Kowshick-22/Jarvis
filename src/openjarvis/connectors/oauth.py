@@ -58,14 +58,7 @@ GOOGLE_ALL_SCOPES: List[str] = [
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/drive.readonly",
-    # calendar (not .readonly) so the proactive agent can accept/decline events.
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/contacts.readonly",
-    # gmail.modify (a superset of gmail.readonly) so the proactive agent
-    # can trash and label-modify (archive) emails after user approval.
-    "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/tasks.readonly",
 ]
 
 OAUTH_PROVIDERS: Dict[str, OAuthProvider] = {
