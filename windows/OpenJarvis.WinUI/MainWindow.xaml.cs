@@ -22,8 +22,6 @@ public sealed partial class MainWindow : Window
         App.Services.Settings.ApplyWindowTheme(this);
         Activated += OnActivated;
         TrySetIcon();
-        App.Services.Supervisor.StatusChanged += OnStatusChanged;
-
         NavView.OpenPaneLength = ClampNavPaneWidth(SavedNavPaneWidth());
         UpdateNavPaneSplitterPosition();
 
@@ -40,7 +38,6 @@ public sealed partial class MainWindow : Window
         ShellGrid.Visibility = Visibility.Visible;
         NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("chat");
-        OnStatusChanged(this, EventArgs.Empty);
     }
 
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -248,20 +245,6 @@ public sealed partial class MainWindow : Window
         };
         ContentFrame.Navigate(page);
     }
-
-    private void OnStatusChanged(object? sender, EventArgs e)
-    {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            var status = App.Services.Supervisor.Status;
-            StatusText.Text = string.IsNullOrWhiteSpace(status.Detail)
-                ? status.Phase
-                : $"{status.Phase}: {status.Detail}";
-            ErrorBar.IsOpen = status.Failed;
-            ErrorBar.Message = status.Detail;
-        });
-    }
-
     private async Task CheckUpdatesAsync()
     {
         try

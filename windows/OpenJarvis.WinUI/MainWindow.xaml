@@ -16,15 +16,10 @@
                 SelectionChanged="NavView_SelectionChanged"
                 AutomationProperties.Name="OpenJarvis navigation">
                 <NavigationView.PaneHeader>
-                    <StackPanel Margin="12,8,12,0" Spacing="4">
-                        <TextBlock Text="OpenJarvis" Style="{StaticResource SubtitleTextBlockStyle}" />
-                        <TextBlock
-                            x:Name="StatusText"
-                            Text="Starting…"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            TextWrapping="Wrap"
-                            AutomationProperties.LiveSetting="Polite" />
-                    </StackPanel>
+                    <TextBlock
+                        Margin="12,8,12,0"
+                        Text="OpenJarvis"
+                        Style="{StaticResource SubtitleTextBlockStyle}" />
                 </NavigationView.PaneHeader>
                 <NavigationView.MenuItems>
                     <NavigationViewItem Content="Chat" Tag="chat" AccessKey="C" AutomationProperties.Name="Chat">
@@ -63,13 +58,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <InfoBar
-                        x:Name="ErrorBar"
-                        Grid.Row="0"
-                        IsOpen="False"
-                        Severity="Error"
-                        IsClosable="True"
-                        Title="OpenJarvis needs attention" />
+                    <views:StatusBanner Grid.Row="0" />
                     <Frame x:Name="ContentFrame" Grid.Row="1" IsTabStop="True" />
                 </Grid>
             </NavigationView>

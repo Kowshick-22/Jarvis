@@ -23,8 +23,8 @@ public sealed partial class SettingsPage : Page
 
     /// <summary>
     /// Mirrors <see cref="App.Services.Supervisor"/>'s live status — the
-    /// same automatic install/start/model-load sequence <c>MainWindow</c>'s
-    /// status text already shows, not a separate manually-triggered setup
+    /// same automatic install/start/model-load sequence <see cref="StatusBanner"/>
+    /// already shows, not a separate manually-triggered setup
     /// flow. The former standalone Setup page re-ran that whole sequence by
     /// hand on every click, so it always started from a blank 0% (it never
     /// looked at the supervisor's real state) and finished "instantly" once
@@ -43,8 +43,6 @@ public sealed partial class SettingsPage : Page
             { Ready: true } => "", // CheckMark
             _ => "" // Sync (in progress)
         };
-        SetupErrorBar.IsOpen = status.Failed;
-        SetupErrorBar.Message = status.Detail;
         RetrySetupButton.IsEnabled = !status.Ready;
     }
 
