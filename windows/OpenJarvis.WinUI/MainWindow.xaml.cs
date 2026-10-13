@@ -232,11 +232,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void NavView_PaneOpening(NavigationView sender, object args) =>
-        ChatListPane.Visibility = Visibility.Visible;
+    private void NavView_PaneOpening(NavigationView sender, object args) => ApplyPaneOpen(true);
 
     private void NavView_PaneClosing(NavigationView sender, NavigationViewPaneClosingEventArgs args) =>
-        ChatListPane.Visibility = Visibility.Collapsed;
+        ApplyPaneOpen(false);
+
+    private void ApplyPaneOpen(bool open)
+    {
+        var visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        ChatListPane.Visibility = visibility;
+        NavPaneSplitter.Visibility = visibility;
+        NavPaneSplitter.IsTabStop = open;
+    }
 
     private void ChatListPane_ConversationOpened(object? sender, EventArgs e)
     {
