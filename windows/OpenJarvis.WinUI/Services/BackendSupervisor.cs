@@ -64,16 +64,6 @@ public sealed class BackendSupervisor : IDisposable
         SetStatus(SetupStep.Engine, "Stopped", "Setup stopped.", false);
     }
 
-    public async Task RestartWithAgentAsync(string agent, CancellationToken cancellationToken)
-    {
-        _settings.Current.SelectedAgent = agent;
-        _settings.Save();
-        StopJarvis();
-        SetStatus(SetupStep.Server, "Restarting", $"Switching agent to {agent}…", false);
-        await StartJarvisAsync(cancellationToken);
-        await WaitUntilReadyAsync(cancellationToken);
-    }
-
     public async Task RestartWithModelAsync(string model, CancellationToken cancellationToken)
     {
         _settings.Current.SelectedModel = model;
@@ -248,7 +238,7 @@ public sealed class BackendSupervisor : IDisposable
         return
             "serve --engine foundry_local " +
             $"--model {Quote(_settings.Current.SelectedModel)} " +
-            $"--agent {Quote(_settings.Current.SelectedAgent)} " +
+            "--agent simple " +
             "--port 8000 --host 127.0.0.1";
     }
 

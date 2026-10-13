@@ -234,12 +234,6 @@
                         MinWidth="220"
                         SelectionChanged="ModelBox_SelectionChanged"
                         AutomationProperties.Name="Model" />
-                    <ComboBox
-                        x:Name="AgentBox"
-                        Header="Agent"
-                        MinWidth="160"
-                        SelectionChanged="AgentBox_SelectionChanged"
-                        AutomationProperties.Name="Agent" />
                     <TextBlock
                         x:Name="HardwareText"
                         VerticalAlignment="Bottom"

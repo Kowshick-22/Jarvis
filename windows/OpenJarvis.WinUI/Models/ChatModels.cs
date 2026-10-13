@@ -306,7 +306,6 @@ public sealed class AppSettings
     public double Temperature { get; set; } = 0.7;
     public int MaxTokens { get; set; } = 1024;
     public string SelectedModel { get; set; } = "Phi-4-mini-instruct";
-    public string SelectedAgent { get; set; } = "simple";
     public bool ChatSidebarCollapsed { get; set; }
     public double ChatSidebarWidth { get; set; }
     public double NavPaneWidth { get; set; }
@@ -329,11 +328,6 @@ public sealed class BackendStatus
     public SetupStep Step { get; set; } = SetupStep.Engine;
     public bool Ready { get; set; }
     public bool Failed { get; set; }
-}
-
-public static class AgentChoices
-{
-    public static readonly string[] All = ["simple", "orchestrator", "react", "openhands"];
 }
 
 public sealed class ChatDisplayItem

@@ -35,8 +35,6 @@ public sealed partial class ChatPage : Page
         ApplyConversationFilter();
         MessageList.ItemsSource = _messages;
         ToolList.ItemsSource = _tools;
-        AgentBox.ItemsSource = AgentChoices.All;
-        AgentBox.SelectedItem = App.Services.Settings.Current.SelectedAgent;
         ApplySidebar(App.Services.Settings.Current.ChatSidebarCollapsed);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -609,24 +607,6 @@ public sealed partial class ChatPage : Page
         {
             await App.Services.Supervisor.RestartWithModelAsync(model, CancellationToken.None);
             await RefreshServerAsync();
-        }
-        catch (Exception ex)
-        {
-            App.Services.Supervisor.ReportUiError(ex.Message);
-        }
-    }
-
-    private async void AgentBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (AgentBox.SelectedItem is not string agent ||
-            agent == App.Services.Settings.Current.SelectedAgent)
-        {
-            return;
-        }
-
-        try
-        {
-            await App.Services.Supervisor.RestartWithAgentAsync(agent, CancellationToken.None);
         }
         catch (Exception ex)
         {

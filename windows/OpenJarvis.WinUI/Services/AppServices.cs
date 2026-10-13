@@ -60,13 +60,6 @@ public sealed class AppServices
             {
                 settings.Current.SelectedModel = model.GetString() ?? settings.Current.SelectedModel;
             }
-
-            if (root.TryGetProperty("DefaultAgent", out var agent) &&
-                string.IsNullOrWhiteSpace(settings.Current.SelectedAgent))
-            {
-                settings.Current.SelectedAgent = agent.GetString() ?? settings.Current.SelectedAgent;
-            }
-
         }
         catch
         {
