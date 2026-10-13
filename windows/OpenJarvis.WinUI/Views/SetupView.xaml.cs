@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using OpenJarvis.WinUI.Models;
 
 namespace OpenJarvis.WinUI.Views;
@@ -21,6 +23,29 @@ public sealed partial class SetupView : UserControl
     public SetupView()
     {
         InitializeComponent();
+        TrySetLogo();
+    }
+
+    private void TrySetLogo()
+    {
+        try
+        {
+            var logoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenJarvis_Circular_Logo.png");
+            if (!File.Exists(logoPath))
+            {
+                return;
+            }
+
+            LogoMark.Fill = new ImageBrush
+            {
+                ImageSource = new BitmapImage(new Uri(logoPath)),
+                Stretch = Stretch.UniformToFill,
+            };
+        }
+        catch
+        {
+            // The header mark is decorative.
+        }
     }
 
     public event EventHandler? Completed;

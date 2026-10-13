@@ -52,8 +52,8 @@
 
   <Target Name="CopyOpenJarvisIcon" AfterTargets="Build">
     <MakeDir Directories="$(TargetDir)Assets" />
-    <Copy SourceFiles="$(OpenJarvisIcon)"
-          DestinationFiles="$(TargetDir)Assets\OpenJarvis.ico"
+    <Copy SourceFiles="$(OpenJarvisIcon);$(OpenJarvisLogo)"
+          DestinationFiles="$(TargetDir)Assets\OpenJarvis.ico;$(TargetDir)Assets\OpenJarvis_Circular_Logo.png"
           SkipUnchangedFiles="true" />
   </Target>
 
@@ -61,6 +61,10 @@
     <ItemGroup>
       <ResolvedFileToPublish Include="$(OpenJarvisIcon)">
         <RelativePath>Assets\OpenJarvis.ico</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OpenJarvisLogo)">
+        <RelativePath>Assets\OpenJarvis_Circular_Logo.png</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
     </ItemGroup>
