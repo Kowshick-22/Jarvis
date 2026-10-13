@@ -34,11 +34,11 @@
             <!-- Step 1: name + instruction -->
             <StackPanel x:Name="Step1" Spacing="12" Visibility="Collapsed">
                 <TextBlock Text="Step 2 of 4 · Name and instructions" Style="{StaticResource SubtitleTextBlockStyle}" />
-                <TextBox x:Name="NameBox" Header="Name" PlaceholderText="e.g. Code Reviewer" />
+                <TextBox x:Name="NameBox" Header="Agent Name" PlaceholderText="e.g. AI Research Tracker" />
                 <TextBox
                     x:Name="InstructionBox"
-                    Header="Instruction"
-                    PlaceholderText="What should this agent do?"
+                    Header="What should this agent do?"
+                    PlaceholderText="e.g. Monitor the latest research papers on reasoning and chain-of-thought in LLMs"
                     AcceptsReturn="True"
                     TextWrapping="Wrap"
                     Height="120" />
