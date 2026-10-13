@@ -90,7 +90,7 @@ public sealed class FoundryClient
             foundry,
             new[] { "server start", "service start" },
             cancellationToken,
-            "Could not start Foundry Local. Open Setup and run Start setup again.",
+            "Could not start Foundry Local. Choose Retry to try again.",
             progress);
         var host = await DiscoverHostAsync(foundry, cancellationToken);
         TomlSettings.SetFoundryHost(host);
@@ -424,7 +424,7 @@ public sealed class FoundryClient
         }
 
         throw new InvalidOperationException(
-            "Foundry Local started but did not report an endpoint. Open Setup and run Start setup again.");
+            "Foundry Local started but did not report an endpoint. Choose Retry to try again.");
     }
 
     private async Task<string> DownloadMsixAsync(
@@ -474,7 +474,7 @@ public sealed class FoundryClient
         }
 
         throw new InvalidOperationException(
-            $"Could not download Foundry Local {Version} for ARM64. Check your network and retry Setup. "
+            $"Could not download Foundry Local {Version} for ARM64. Check your network and choose Retry. "
             + (last?.Message ?? ""),
             last);
     }
@@ -600,7 +600,7 @@ public sealed class FoundryClient
         process.ErrorDataReceived += (_, e) => Remember(e.Data);
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync(cancellationToken);
+        await WaitOrKillAsync(process, cancellationToken);
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
@@ -627,9 +627,48 @@ public sealed class FoundryClient
         };
         using var process = Process.Start(start)
             ?? throw new InvalidOperationException($"Failed to start {fileName}.");
-        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        return (stdout, stderr);
+        try
+        {
+            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return (stdout, stderr);
+        }
+        catch (OperationCanceledException)
+        {
+            Kill(process);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Cancelling setup must not leave a multi-gigabyte <c>foundry model download</c> running.
+    /// </summary>
+    private static async Task WaitOrKillAsync(Process process, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Kill(process);
+            throw;
+        }
+    }
+
+    private static void Kill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Best effort.
+        }
     }
 }

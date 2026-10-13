@@ -12,6 +12,7 @@ public sealed class BackendSupervisor : IDisposable
     private Process? _jarvis;
     private Task? _drain;
     private CancellationTokenSource? _loop;
+    private Task _loopTask = Task.CompletedTask;
     private int _backoffMs = 1000;
     private readonly object _logGate = new();
     private string _recentOutput = "";
@@ -40,7 +41,27 @@ public sealed class BackendSupervisor : IDisposable
     {
         _loop?.Cancel();
         _loop = new CancellationTokenSource();
-        _ = Task.Run(() => SuperviseAsync(_loop.Token));
+        _backoffMs = 1000;
+        var token = _loop.Token;
+        var previous = _loopTask;
+        _loopTask = Task.Run(async () =>
+        {
+            // A cancelled loop may still be unwinding a Foundry or jarvis child process.
+            await previous.ContinueWith(_ => { }, TaskScheduler.Default);
+            await SuperviseAsync(token);
+        });
+    }
+
+    /// <summary>
+    /// Cancels setup and stops jarvis serve. Foundry Local's own daemon is left alone
+    /// because other apps on the machine may be using it.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        _loop?.Cancel();
+        await _loopTask.ContinueWith(_ => { }, TaskScheduler.Default);
+        StopJarvis();
+        SetStatus(SetupStep.Engine, "Stopped", "Setup stopped.", false);
     }
 
     public async Task RestartWithAgentAsync(string agent, CancellationToken cancellationToken)
@@ -48,7 +69,7 @@ public sealed class BackendSupervisor : IDisposable
         _settings.Current.SelectedAgent = agent;
         _settings.Save();
         StopJarvis();
-        SetStatus("Restarting", $"Switching agent to {agent}…", false, false);
+        SetStatus(SetupStep.Server, "Restarting", $"Switching agent to {agent}…", false);
         await StartJarvisAsync(cancellationToken);
         await WaitUntilReadyAsync(cancellationToken);
     }
@@ -59,7 +80,7 @@ public sealed class BackendSupervisor : IDisposable
         _settings.Save();
         await LoadSelectedModelAsync(cancellationToken);
         StopJarvis();
-        SetStatus("Restarting", $"Switching model to {model}…", false, false);
+        SetStatus(SetupStep.Server, "Restarting", $"Switching model to {model}…", false);
         await StartJarvisAsync(cancellationToken);
         await WaitUntilReadyAsync(cancellationToken);
     }
@@ -78,26 +99,26 @@ public sealed class BackendSupervisor : IDisposable
             try
             {
                 _api.SetBaseUrl(_settings.Current.ApiUrl);
-                SetStatus("Checking backend", "Looking for a local OpenJarvis server…", false, false);
+                SetStatus(SetupStep.Engine, "Checking backend", "Looking for a local OpenJarvis server…", false);
                 using var shortWait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 shortWait.CancelAfter(TimeSpan.FromSeconds(2));
                 if (await _api.IsHealthyAsync(shortWait.Token))
                 {
                     await LoadSelectedModelAsync(cancellationToken);
-                    SetStatus("Ready", "Attached to an existing OpenJarvis server.", true, false);
+                    SetStatus(SetupStep.Done, "Ready", "Attached to an existing OpenJarvis server.", false);
                     _backoffMs = 1000;
                     await WaitUntilUnhealthyAsync(cancellationToken);
                     continue;
                 }
 
-                SetStatus("Starting Foundry Local", "Ensuring Foundry Local is installed and running…", false, false);
+                SetStatus(SetupStep.Engine, "Starting Foundry Local", "Ensuring Foundry Local is installed and running…", false);
                 var progress = new Progress<string>(line =>
-                    SetStatus("Starting Foundry Local", line, false, false));
+                    SetStatus(SetupStep.Engine, "Starting Foundry Local", line, false));
                 var host = await _foundry.EnsureServiceAsync(cancellationToken, progress);
                 TomlSettings.SetFoundryHost(host);
                 await LoadSelectedModelAsync(cancellationToken);
 
-                SetStatus("Starting OpenJarvis", "Launching jarvis serve…", false, false);
+                SetStatus(SetupStep.Server, "Starting OpenJarvis", "Launching jarvis serve…", false);
                 await StartJarvisAsync(cancellationToken);
 
                 var deadline = DateTime.UtcNow.AddMinutes(10);
@@ -105,7 +126,7 @@ public sealed class BackendSupervisor : IDisposable
                 {
                     if (await _api.IsEngineHealthyAsync(cancellationToken))
                     {
-                        SetStatus("Ready", "OpenJarvis is ready.", true, false);
+                        SetStatus(SetupStep.Done, "Ready", "OpenJarvis is ready.", false);
                         _backoffMs = 1000;
                         await WaitUntilUnhealthyAsync(cancellationToken);
                         break;
@@ -116,7 +137,7 @@ public sealed class BackendSupervisor : IDisposable
                         throw new InvalidOperationException(await FormatExitAsync(_jarvis, cancellationToken));
                     }
 
-                    SetStatus("Waiting", "Waiting for /health…", false, false);
+                    SetStatus(SetupStep.Server, "Waiting", "Waiting for /health…", false);
                     await Task.Delay(1000, cancellationToken);
                 }
             }
@@ -127,7 +148,7 @@ public sealed class BackendSupervisor : IDisposable
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                SetStatus("Error", Actionable(ex.Message), false, true);
+                SetStatus(Status.Step, "Error", Actionable(ex.Message), true);
                 try
                 {
                     await Task.Delay(_backoffMs, cancellationToken);
@@ -150,9 +171,9 @@ public sealed class BackendSupervisor : IDisposable
             return;
         }
 
-        SetStatus("Loading model", $"Loading {model} into Foundry Local…", false, false);
+        SetStatus(SetupStep.Model, "Loading model", $"Loading {model} into Foundry Local…", false);
         var progress = new Progress<string>(line =>
-            SetStatus("Loading model", line, false, false));
+            SetStatus(SetupStep.Model, "Loading model", line, false));
         var loaded = await _foundry.EnsureModelLoadedAsync(model, cancellationToken, progress);
         if (!string.IsNullOrWhiteSpace(loaded) &&
             !string.Equals(loaded, model, StringComparison.OrdinalIgnoreCase))
@@ -160,9 +181,9 @@ public sealed class BackendSupervisor : IDisposable
             _settings.Current.SelectedModel = loaded;
             _settings.Save();
             SetStatus(
+                SetupStep.Model,
                 "Loading model",
                 $"This device cannot load {model}. Using {loaded} instead.",
-                false,
                 false);
         }
     }
@@ -279,7 +300,7 @@ public sealed class BackendSupervisor : IDisposable
         {
             if (await _api.IsEngineHealthyAsync(cancellationToken))
             {
-                SetStatus("Ready", "OpenJarvis is ready.", true, false);
+                SetStatus(SetupStep.Done, "Ready", "OpenJarvis is ready.", false);
                 return;
             }
 
@@ -302,7 +323,7 @@ public sealed class BackendSupervisor : IDisposable
             await Task.Delay(3000, cancellationToken);
             if (!await _api.IsHealthyAsync(cancellationToken))
             {
-                SetStatus("Recovering", "The backend stopped. Restarting…", false, false);
+                SetStatus(SetupStep.Engine, "Recovering", "The backend stopped. Restarting…", false);
                 return;
             }
         }
@@ -383,11 +404,12 @@ public sealed class BackendSupervisor : IDisposable
         }
     }
 
-    private void SetStatus(string phase, string detail, bool ready, bool failed)
+    private void SetStatus(SetupStep step, string phase, string detail, bool failed)
     {
+        Status.Step = step;
         Status.Phase = phase;
         Status.Detail = detail;
-        Status.Ready = ready;
+        Status.Ready = step == SetupStep.Done;
         Status.Failed = failed;
         StatusChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -397,13 +419,13 @@ public sealed class BackendSupervisor : IDisposable
         if (message.Contains("Foundry Local is not installed", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("foundry.exe was not found", StringComparison.OrdinalIgnoreCase))
         {
-            return message + " Open Setup and choose Start setup to install Foundry Local automatically.";
+            return message + " Choose Retry to install Foundry Local automatically.";
         }
 
         if (message.Contains("Foundry", StringComparison.OrdinalIgnoreCase))
         {
             return message
-                + " Open Setup → Start setup (use a *-generic-cpu model id on VMs without a GPU).";
+                + " Choose Retry (use a *-generic-cpu model id on VMs without a GPU).";
         }
 
         if (message.Contains("jarvis", StringComparison.OrdinalIgnoreCase))

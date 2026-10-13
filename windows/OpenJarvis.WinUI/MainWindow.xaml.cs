@@ -23,15 +23,24 @@ public sealed partial class MainWindow : Window
         Activated += OnActivated;
         TrySetIcon();
         App.Services.Supervisor.StatusChanged += OnStatusChanged;
-        App.Services.Supervisor.Start();
-        NavView.SelectedItem = NavView.MenuItems[0];
-        NavigateTo("chat");
 
         NavView.OpenPaneLength = ClampNavPaneWidth(SavedNavPaneWidth());
         UpdateNavPaneSplitterPosition();
 
+        SetupOverlay.Completed += SetupOverlay_Completed;
+        SetupOverlay.Begin();
+
         _ = CheckUpdatesAsync();
         Closed += (_, _) => App.Services.Supervisor.Dispose();
+    }
+
+    private void SetupOverlay_Completed(object? sender, EventArgs e)
+    {
+        SetupOverlay.Visibility = Visibility.Collapsed;
+        ShellGrid.Visibility = Visibility.Visible;
+        NavView.SelectedItem = NavView.MenuItems[0];
+        NavigateTo("chat");
+        OnStatusChanged(this, EventArgs.Empty);
     }
 
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)

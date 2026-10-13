@@ -11,7 +11,7 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel Spacing="8">
                         <TextBlock
-                            Text="OpenJarvis installs Foundry Local and downloads the default model automatically in the background — this reflects that live, it doesn't run a separate step."
+                            Text="After you allow local setup on the launch screen, OpenJarvis installs Foundry Local and loads the selected model automatically. This shows that status live."
                             Style="{StaticResource CaptionTextBlockStyle}"
                             Opacity="0.8"
                             TextWrapping="Wrap" />

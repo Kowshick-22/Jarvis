@@ -311,12 +311,22 @@ public sealed class AppSettings
     public double ChatSidebarWidth { get; set; }
     public double NavPaneWidth { get; set; }
     public bool AllowCloud { get; set; }
+    public bool LocalSetupConsented { get; set; }
+}
+
+public enum SetupStep
+{
+    Engine,
+    Model,
+    Server,
+    Done
 }
 
 public sealed class BackendStatus
 {
     public string Phase { get; set; } = "Starting";
     public string Detail { get; set; } = "";
+    public SetupStep Step { get; set; } = SetupStep.Engine;
     public bool Ready { get; set; }
     public bool Failed { get; set; }
 }
