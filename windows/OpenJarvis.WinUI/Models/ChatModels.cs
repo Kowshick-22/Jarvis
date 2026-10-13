@@ -310,7 +310,6 @@ public sealed class AppSettings
     public bool ChatSidebarCollapsed { get; set; }
     public double ChatSidebarWidth { get; set; }
     public bool AllowCloud { get; set; }
-    public bool SetupComplete { get; set; }
 }
 
 public sealed class BackendStatus

@@ -90,18 +90,24 @@
 
             <Grid Margin="0,0,0,8" ColumnSpacing="4">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Chats" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
                 <Button
-                    Grid.Column="1"
-                    Click="ToggleTheme_Click"
+                    x:Name="ToggleSidebarButton"
+                    Grid.Column="0"
+                    Click="ToggleSidebar_Click"
                     Style="{StaticResource FlatIconButtonStyle}"
-                    ToolTipService.ToolTip="Toggle theme"
-                    AutomationProperties.Name="Toggle theme">
-                    <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE793;" FontSize="14" />
+                    ToolTipService.ToolTip="Hide chats"
+                    AutomationProperties.Name="Hide conversation list">
+                    <FontIcon Glyph="&#xE126;" FontSize="14" />
                 </Button>
+                <TextBlock
+                    Grid.Column="1"
+                    Text="Chats"
+                    Style="{StaticResource SubtitleTextBlockStyle}"
+                    VerticalAlignment="Center"
+                    Margin="4,0,0,0" />
             </Grid>
 
             <Button
@@ -197,19 +203,31 @@
             <Grid Margin="0,0,0,12" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Button
-                    x:Name="ToggleSidebarButton"
+                    x:Name="ReopenSidebarButton"
                     VerticalAlignment="Bottom"
                     MinWidth="40"
                     MinHeight="40"
+                    Visibility="Collapsed"
                     Click="ToggleSidebar_Click"
-                    ToolTipService.ToolTip="Hide chats"
-                    AutomationProperties.Name="Hide conversation list">
-                    <FontIcon x:Name="ToggleSidebarIcon" Glyph="&#xE126;" FontSize="16" />
+                    ToolTipService.ToolTip="Show chats"
+                    AutomationProperties.Name="Show conversation list">
+                    <FontIcon Glyph="&#xE127;" FontSize="16" />
                 </Button>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                <Button
+                    Grid.Column="1"
+                    VerticalAlignment="Bottom"
+                    MinWidth="40"
+                    MinHeight="40"
+                    Click="ToggleTheme_Click"
+                    ToolTipService.ToolTip="Toggle theme"
+                    AutomationProperties.Name="Toggle theme">
+                    <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE793;" FontSize="16" />
+                </Button>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
                     <ComboBox
                         x:Name="ModelBox"
                         Header="Model"

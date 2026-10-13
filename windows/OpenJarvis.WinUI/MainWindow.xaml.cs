@@ -16,14 +16,7 @@ public sealed partial class MainWindow : Window
         App.Services.Supervisor.StatusChanged += OnStatusChanged;
         App.Services.Supervisor.Start();
         NavView.SelectedItem = NavView.MenuItems[0];
-        if (!App.Services.Settings.Current.SetupComplete)
-        {
-            NavigateTo("setup");
-        }
-        else
-        {
-            NavigateTo("chat");
-        }
+        NavigateTo("chat");
 
         _ = CheckUpdatesAsync();
         Closed += (_, _) => App.Services.Supervisor.Dispose();
@@ -77,7 +70,6 @@ public sealed partial class MainWindow : Window
         {
             "chat" => typeof(ChatPage),
             "settings" => typeof(SettingsPage),
-            "setup" => typeof(SetupPage),
             "approvals" => typeof(ApprovalsPage),
             "dashboard" => typeof(DashboardPage),
             "datasources" => typeof(DataSourcesPage),

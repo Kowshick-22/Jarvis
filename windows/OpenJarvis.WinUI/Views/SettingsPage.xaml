@@ -7,6 +7,50 @@
             <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
 
             <StackPanel Spacing="8">
+                <TextBlock Text="Setup" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Text="OpenJarvis installs Foundry Local and downloads the default model automatically in the background — this reflects that live, it doesn't run a separate step."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon
+                                x:Name="SetupStatusIcon"
+                                Grid.Column="0"
+                                FontSize="16"
+                                VerticalAlignment="Top"
+                                Glyph="&#xE895;" />
+                            <TextBlock
+                                x:Name="SetupStatusText"
+                                Grid.Column="1"
+                                Text="Checking backend…"
+                                TextWrapping="Wrap"
+                                AutomationProperties.LiveSetting="Polite" />
+                        </Grid>
+                        <InfoBar
+                            x:Name="SetupErrorBar"
+                            IsOpen="False"
+                            Severity="Error"
+                            IsClosable="True"
+                            Title="OpenJarvis needs attention" />
+                        <Button
+                            x:Name="RetrySetupButton"
+                            Content="Retry setup"
+                            Click="RetrySetup_Click"
+                            MinHeight="36"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="Retry setup" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Text="Appearance" Style="{StaticResource SubtitleTextBlockStyle}" />
                 <Border Style="{StaticResource CardBorderStyle}">
                     <ComboBox

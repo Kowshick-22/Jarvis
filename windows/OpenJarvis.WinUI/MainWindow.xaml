@@ -56,13 +56,6 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
-            <NavigationView.FooterMenuItems>
-                <NavigationViewItem Content="Setup" Tag="setup" AccessKey="U" AutomationProperties.Name="Setup">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE713;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-            </NavigationView.FooterMenuItems>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />

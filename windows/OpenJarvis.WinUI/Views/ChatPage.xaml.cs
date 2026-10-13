@@ -310,12 +310,13 @@ public sealed partial class ChatPage : Page
         Sidebar.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarSplitter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarSplitter.IsTabStop = !collapsed;
-        ToggleSidebarIcon.Glyph = collapsed ? "\uE127" : "\uE126";
-        var label = collapsed ? "Show chats" : "Hide chats";
-        ToolTipService.SetToolTip(ToggleSidebarButton, label);
-        AutomationProperties.SetName(
-            ToggleSidebarButton,
-            collapsed ? "Show conversation list" : "Hide conversation list");
+
+        // ToggleSidebarButton now lives inside the Sidebar panel itself (it
+        // collapses along with it, same as React's in-sidebar collapse
+        // button), so it only ever needs to say "Hide" \u2014 ReopenSidebarButton,
+        // in the always-visible content header, is the only way back once
+        // collapsed (matching React's separate floating reopen button).
+        ReopenSidebarButton.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)

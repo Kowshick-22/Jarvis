@@ -10,7 +10,45 @@ public sealed partial class SettingsPage : Page
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Loaded += (_, _) =>
+        {
+            ApplySupervisorStatus();
+            App.Services.Supervisor.StatusChanged += OnSupervisorStatusChanged;
+        };
+        Unloaded += (_, _) => App.Services.Supervisor.StatusChanged -= OnSupervisorStatusChanged;
     }
+
+    private void OnSupervisorStatusChanged(object? sender, EventArgs e) =>
+        DispatcherQueue.TryEnqueue(ApplySupervisorStatus);
+
+    /// <summary>
+    /// Mirrors <see cref="App.Services.Supervisor"/>'s live status — the
+    /// same automatic install/start/model-load sequence <c>MainWindow</c>'s
+    /// status text already shows, not a separate manually-triggered setup
+    /// flow. The former standalone Setup page re-ran that whole sequence by
+    /// hand on every click, so it always started from a blank 0% (it never
+    /// looked at the supervisor's real state) and finished "instantly" once
+    /// clicked, because the supervisor had usually already done the work
+    /// in the background seconds after launch.
+    /// </summary>
+    private void ApplySupervisorStatus()
+    {
+        var status = App.Services.Supervisor.Status;
+        SetupStatusText.Text = string.IsNullOrWhiteSpace(status.Detail)
+            ? status.Phase
+            : $"{status.Phase} — {status.Detail}";
+        SetupStatusIcon.Glyph = status switch
+        {
+            { Failed: true } => "", // Error
+            { Ready: true } => "", // CheckMark
+            _ => "" // Sync (in progress)
+        };
+        SetupErrorBar.IsOpen = status.Failed;
+        SetupErrorBar.Message = status.Detail;
+        RetrySetupButton.IsEnabled = !status.Ready;
+    }
+
+    private void RetrySetup_Click(object sender, RoutedEventArgs e) => App.Services.Supervisor.Start();
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
