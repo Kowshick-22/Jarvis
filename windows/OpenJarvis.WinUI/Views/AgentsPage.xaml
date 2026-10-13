@@ -73,11 +73,11 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <Button Content="Chat" Tag="{x:Bind}" Click="Chat_Click" MinHeight="36" />
-                                <Button Content="Run" Tag="{x:Bind}" Click="Run_Click" IsEnabled="{x:Bind CanRun, Mode=OneWay}" MinHeight="36" />
-                                <Button Content="Pause" Tag="{x:Bind}" Click="Pause_Click" IsEnabled="{x:Bind CanPause, Mode=OneWay}" MinHeight="36" />
-                                <Button Content="Resume" Tag="{x:Bind}" Click="Resume_Click" IsEnabled="{x:Bind CanResume, Mode=OneWay}" MinHeight="36" />
-                                <Button Content="Recover" Tag="{x:Bind}" Click="Recover_Click" IsEnabled="{x:Bind CanRecover, Mode=OneWay}" MinHeight="36" />
+                                <Button Content="Chat" Tag="{x:Bind}" Click="Chat_Click" MinHeight="36" AutomationProperties.Name="Chat with this agent" />
+                                <Button Content="Run" Tag="{x:Bind}" Click="Run_Click" IsEnabled="{x:Bind CanRun, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Run this agent" />
+                                <Button Content="Pause" Tag="{x:Bind}" Click="Pause_Click" IsEnabled="{x:Bind CanPause, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Pause this agent" />
+                                <Button Content="Resume" Tag="{x:Bind}" Click="Resume_Click" IsEnabled="{x:Bind CanResume, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Resume this agent" />
+                                <Button Content="Recover" Tag="{x:Bind}" Click="Recover_Click" IsEnabled="{x:Bind CanRecover, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Recover this agent" />
                             </StackPanel>
 
                             <Button

@@ -23,8 +23,20 @@
                     VerticalAlignment="Bottom"
                     Opacity="0.7" />
             </StackPanel>
-            <Button Grid.Column="1" Content="Copy all" Click="CopyAll_Click" Margin="0,0,8,0" MinHeight="36" />
-            <Button Grid.Column="2" Content="Clear" Click="Clear_Click" MinHeight="36" />
+            <Button
+                Grid.Column="1"
+                Content="Copy all"
+                Click="CopyAll_Click"
+                Margin="0,0,8,0"
+                MinHeight="36"
+                AccessKey="C"
+                AutomationProperties.Name="Copy all logs" />
+            <Button
+                Grid.Column="2"
+                Content="Clear"
+                Click="Clear_Click"
+                MinHeight="36"
+                AutomationProperties.Name="Clear logs" />
         </Grid>
 
         <ListView

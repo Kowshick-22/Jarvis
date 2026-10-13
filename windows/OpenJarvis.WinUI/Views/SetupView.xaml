@@ -79,6 +79,7 @@
                                 Style="{StaticResource AccentButtonStyle}"
                                 Content="Use Foundry Local and continue"
                                 Click="ConsentButton_Click"
+                                AccessKey="U"
                                 AutomationProperties.Name="Use Foundry Local and continue" />
                         </StackPanel>
                     </Border>
@@ -144,6 +145,7 @@
                             Content="Retry now"
                             Visibility="Collapsed"
                             Click="RetryButton_Click"
+                            AccessKey="R"
                             AutomationProperties.Name="Retry now" />
                         <Button
                             x:Name="ChangeSourceButton"
@@ -152,6 +154,7 @@
                             MinHeight="36"
                             Content="Change inference source"
                             Click="ChangeSourceButton_Click"
+                            AccessKey="C"
                             AutomationProperties.Name="Change inference source" />
                     </Grid>
                 </StackPanel>

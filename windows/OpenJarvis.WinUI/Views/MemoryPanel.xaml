@@ -36,7 +36,13 @@
                             PlaceholderText="Search stored memories"
                             KeyDown="SearchBox_KeyDown"
                             AutomationProperties.Name="Search memory" />
-                        <Button Grid.Column="1" Content="Search" Click="Search_Click" MinHeight="36" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Search"
+                            Click="Search_Click"
+                            MinHeight="36"
+                            AccessKey="S"
+                            AutomationProperties.Name="Run memory search" />
                     </Grid>
                     <TextBlock x:Name="SearchEmptyText" Text="No matching memories found." Visibility="Collapsed" Opacity="0.7" />
                     <ItemsControl x:Name="SearchResultsList">
@@ -76,8 +82,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBox x:Name="IndexPathBox" PlaceholderText="C:\Users\you\Documents\Notes" AutomationProperties.Name="Folder path to index" />
-                        <Button Grid.Column="1" Content="Browse" Click="Browse_Click" MinHeight="36" />
-                        <Button Grid.Column="2" Content="Index" Click="Index_Click" MinHeight="36" />
+                        <Button Grid.Column="1" Content="Browse" Click="Browse_Click" MinHeight="36" AutomationProperties.Name="Browse for folder" />
+                        <Button Grid.Column="2" Content="Index" Click="Index_Click" MinHeight="36" AutomationProperties.Name="Index folder" />
                     </Grid>
                     <TextBlock x:Name="IndexResultText" TextWrapping="Wrap" Opacity="0.8" />
                 </StackPanel>
@@ -95,7 +101,7 @@
                         TextWrapping="Wrap"
                         MinHeight="80"
                         AutomationProperties.Name="Text to store in memory" />
-                    <Button Content="Store" Click="Store_Click" MinHeight="36" HorizontalAlignment="Left" />
+                    <Button Content="Store" Click="Store_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Store text in memory" />
                     <TextBlock x:Name="StoreResultText" TextWrapping="Wrap" Opacity="0.8" />
                 </StackPanel>
             </Border>

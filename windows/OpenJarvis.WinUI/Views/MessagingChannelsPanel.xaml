@@ -55,9 +55,9 @@
                         Text="Connects immediately — no restart needed."
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Opacity="0.7" />
-                    <PasswordBox x:Name="SlackBotTokenBox" Header="Bot token (xoxb-…)" PasswordRevealMode="Peek" />
-                    <PasswordBox x:Name="SlackAppTokenBox" Header="App-level token (xapp-…)" PasswordRevealMode="Peek" />
-                    <Button Content="Connect" Click="SlackConnect_Click" MinHeight="36" HorizontalAlignment="Left" />
+                    <PasswordBox x:Name="SlackBotTokenBox" Header="Bot token (xoxb-…)" PasswordRevealMode="Peek" AutomationProperties.Name="Slack bot token" />
+                    <PasswordBox x:Name="SlackAppTokenBox" Header="App-level token (xapp-…)" PasswordRevealMode="Peek" AutomationProperties.Name="Slack app-level token" />
+                    <Button Content="Connect" Click="SlackConnect_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Connect Slack" />
                 </StackPanel>
             </Border>
         </StackPanel>
@@ -70,9 +70,9 @@
                         Text="Connects immediately — no restart needed."
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Opacity="0.7" />
-                    <PasswordBox x:Name="SendBlueKeyIdBox" Header="API key ID" PasswordRevealMode="Peek" />
-                    <PasswordBox x:Name="SendBlueSecretBox" Header="API secret key" PasswordRevealMode="Peek" />
-                    <Button Content="Verify" Click="SendBlueVerify_Click" MinHeight="36" HorizontalAlignment="Left" />
+                    <PasswordBox x:Name="SendBlueKeyIdBox" Header="API key ID" PasswordRevealMode="Peek" AutomationProperties.Name="SendBlue API key ID" />
+                    <PasswordBox x:Name="SendBlueSecretBox" Header="API secret key" PasswordRevealMode="Peek" AutomationProperties.Name="SendBlue API secret key" />
+                    <Button Content="Verify" Click="SendBlueVerify_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Verify SendBlue credentials" />
                     <ComboBox
                         x:Name="SendBlueNumberBox"
                         Header="Phone number"
@@ -85,15 +85,19 @@
                         Click="SendBlueConnect_Click"
                         IsEnabled="False"
                         MinHeight="36"
-                        HorizontalAlignment="Left" />
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="Connect SendBlue" />
                     <StackPanel x:Name="SendBlueWebhookPanel" Spacing="8" Visibility="Collapsed">
                         <TextBlock
                             Text="Optional: register a public webhook URL (e.g. from your own ngrok tunnel) so SendBlue can reach this device."
                             Style="{StaticResource CaptionTextBlockStyle}"
                             Opacity="0.7"
                             TextWrapping="Wrap" />
-                        <TextBox x:Name="SendBlueWebhookBox" PlaceholderText="https://your-tunnel.example.com/webhooks/sendblue" />
-                        <Button Content="Register webhook" Click="SendBlueRegisterWebhook_Click" MinHeight="36" HorizontalAlignment="Left" />
+                        <TextBox
+                            x:Name="SendBlueWebhookBox"
+                            PlaceholderText="https://your-tunnel.example.com/webhooks/sendblue"
+                            AutomationProperties.Name="SendBlue webhook URL" />
+                        <Button Content="Register webhook" Click="SendBlueRegisterWebhook_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Register SendBlue webhook" />
                         <TextBlock x:Name="SendBlueWebhookStatus" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
                     </StackPanel>
                 </StackPanel>
@@ -116,7 +120,7 @@
                         SelectionChanged="OtherChannelBox_SelectionChanged"
                         AutomationProperties.Name="Other channel type" />
                     <StackPanel x:Name="OtherChannelFieldsPanel" Spacing="8" />
-                    <Button Content="Save" Click="OtherChannelSave_Click" MinHeight="36" HorizontalAlignment="Left" />
+                    <Button Content="Save" Click="OtherChannelSave_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Save other channel" />
                     <TextBlock x:Name="OtherChannelResultText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
                 </StackPanel>
             </Border>

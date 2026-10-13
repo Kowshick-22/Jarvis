@@ -6,7 +6,7 @@
     xmlns:views="using:OpenJarvis.WinUI.Views">
     <Page.Resources>
         <DataTemplate x:Key="ConnectorRowTemplate" x:DataType="models:ConnectorSummary">
-            <Expander Margin="0,0,0,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Expander Margin="0,0,0,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind DisplayName}">
                 <Expander.Header>
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -34,25 +34,29 @@
                     <StackPanel Visibility="{x:Bind Connected}" Spacing="8">
                         <TextBlock Text="{x:Bind SyncStatusLabel, Mode=OneWay}" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="Sync now" Tag="{x:Bind}" Click="Sync_Click" MinHeight="36" />
-                            <Button Content="Disconnect" Tag="{x:Bind}" Click="Disconnect_Click" MinHeight="36" />
+                            <Button Content="Sync now" Tag="{x:Bind}" Click="Sync_Click" MinHeight="36" AutomationProperties.Name="Sync connector now" />
+                            <Button Content="Disconnect" Tag="{x:Bind}" Click="Disconnect_Click" MinHeight="36" AutomationProperties.Name="Disconnect connector" />
                         </StackPanel>
                     </StackPanel>
 
                     <!-- Not connected: auth-type-specific connect form -->
                     <StackPanel Visibility="{x:Bind ShowLocalForm}" Spacing="8">
                         <TextBlock Text="No credentials needed." Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectLocal_Click" MinHeight="36" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectLocal_Click" MinHeight="36" AutomationProperties.Name="Connect data source" />
                     </StackPanel>
 
                     <StackPanel Visibility="{x:Bind ShowFilesystemForm}" Spacing="8">
-                        <TextBox x:Name="PathBox" Header="Folder path" PlaceholderText="C:\Users\you\Documents\Notes" />
-                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectFilesystem_Click" MinHeight="36" />
+                        <TextBox
+                            x:Name="PathBox"
+                            Header="Folder path"
+                            PlaceholderText="C:\Users\you\Documents\Notes"
+                            AutomationProperties.Name="Folder path" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectFilesystem_Click" MinHeight="36" AutomationProperties.Name="Connect folder" />
                     </StackPanel>
 
                     <StackPanel Visibility="{x:Bind ShowTokenForm}" Spacing="8">
-                        <PasswordBox x:Name="TokenBox" Header="API token" />
-                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectToken_Click" MinHeight="36" />
+                        <PasswordBox x:Name="TokenBox" Header="API token" AutomationProperties.Name="API token" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectToken_Click" MinHeight="36" AutomationProperties.Name="Connect with API token" />
                     </StackPanel>
 
                     <StackPanel Visibility="{x:Bind ShowOAuthForm}" Spacing="8">
@@ -60,7 +64,7 @@
                             Text="Opens your browser to sign in, then checks back here automatically."
                             Style="{StaticResource CaptionTextBlockStyle}"
                             TextWrapping="Wrap" />
-                        <Button Content="Continue with provider" Tag="{x:Bind}" Click="ConnectOAuth_Click" MinHeight="36" />
+                        <Button Content="Continue with provider" Tag="{x:Bind}" Click="ConnectOAuth_Click" MinHeight="36" AutomationProperties.Name="Sign in with provider" />
                         <TextBlock x:Name="OAuthWaitingText" Text="" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
                     </StackPanel>
                 </StackPanel>

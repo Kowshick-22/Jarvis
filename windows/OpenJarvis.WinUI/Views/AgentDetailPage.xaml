@@ -34,10 +34,31 @@
                             Width="300"
                             Visibility="Collapsed" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="RunButton" Content="Run" Click="Run_Click" MinHeight="36" />
-                            <Button x:Name="PauseButton" Content="Pause" Click="Pause_Click" MinHeight="36" />
-                            <Button x:Name="ResumeButton" Content="Resume" Click="Resume_Click" MinHeight="36" />
-                            <Button x:Name="RecoverButton" Content="Recover" Click="Recover_Click" MinHeight="36" />
+                            <Button
+                                x:Name="RunButton"
+                                Content="Run"
+                                Click="Run_Click"
+                                MinHeight="36"
+                                AccessKey="R"
+                                AutomationProperties.Name="Run agent" />
+                            <Button
+                                x:Name="PauseButton"
+                                Content="Pause"
+                                Click="Pause_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Pause agent" />
+                            <Button
+                                x:Name="ResumeButton"
+                                Content="Resume"
+                                Click="Resume_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Resume agent" />
+                            <Button
+                                x:Name="RecoverButton"
+                                Content="Recover"
+                                Click="Recover_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Recover agent" />
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
@@ -77,8 +98,18 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="InteractBox" PlaceholderText="Message this agent" AcceptsReturn="False" />
-                        <Button Grid.Column="1" Content="Send" Click="SendInteract_Click" MinHeight="40" MinWidth="80" />
+                        <TextBox
+                            x:Name="InteractBox"
+                            PlaceholderText="Message this agent"
+                            AcceptsReturn="False"
+                            AutomationProperties.Name="Message this agent" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Send"
+                            Click="SendInteract_Click"
+                            MinHeight="40"
+                            MinWidth="80"
+                            AutomationProperties.Name="Send message to agent" />
                     </Grid>
                 </Grid>
             </TabViewItem>
@@ -111,8 +142,17 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="NewTaskBox" PlaceholderText="Add a task" />
-                        <Button Grid.Column="1" Content="Add" Click="AddTask_Click" MinHeight="40" MinWidth="80" />
+                        <TextBox
+                            x:Name="NewTaskBox"
+                            PlaceholderText="Add a task"
+                            AutomationProperties.Name="New task description" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Add"
+                            Click="AddTask_Click"
+                            MinHeight="40"
+                            MinWidth="80"
+                            AutomationProperties.Name="Add task" />
                     </Grid>
                 </Grid>
             </TabViewItem>
@@ -142,7 +182,13 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                    <Button Grid.Row="1" Content="Run learning" Click="RunLearning_Click" MinHeight="36" Margin="0,8,0,0" />
+                    <Button
+                        Grid.Row="1"
+                        Content="Run learning"
+                        Click="RunLearning_Click"
+                        MinHeight="36"
+                        Margin="0,8,0,0"
+                        AutomationProperties.Name="Run learning cycle" />
                 </Grid>
             </TabViewItem>
         </TabView>
