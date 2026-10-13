@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import wave
 from typing import List
 
@@ -20,6 +21,10 @@ _ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
 
 # "George" — warm British male premade voice, Jarvis-like
 _DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
+
+# Kokoro-style IDs ("bm_george", "pf_dora"). SpeechConfig.voice_id defaults to
+# a Kokoro voice, so it can reach this backend; ElevenLabs would 404 on it.
+_KOKORO_VOICE_RE = re.compile(r"^[a-z][fm]_[a-z]+$")
 
 _PCM_SAMPLE_RATE = 24000
 _OUTPUT_FORMATS = {
@@ -95,6 +100,8 @@ class ElevenLabsTTSBackend(TTSBackend):
         if not self._api_key:
             raise RuntimeError("ELEVENLABS_API_KEY not set")
 
+        if _KOKORO_VOICE_RE.match(voice_id):
+            voice_id = ""
         voice_id = voice_id or self._voice_id or _DEFAULT_VOICE_ID
         fmt = output_format if output_format in _OUTPUT_FORMATS else "mp3"
 
