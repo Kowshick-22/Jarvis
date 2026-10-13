@@ -232,6 +232,24 @@ class TestToolCallingProbe:
             result = check_tool_calling(engine, "Phi-4-mini-instruct")
         assert result["supported"] is True
 
+    def test_probe_forces_tool_choice_required_not_auto(
+        self, engine: FoundryLocalEngine
+    ) -> None:
+        """ "auto" lets a model decline a contrived no-op probe tool and
+        read as incapable, even when it can emit tool_calls just fine (seen
+        live with Phi-4-mini-instruct, which answered a real tool-shaped
+        question wrong rather than calling a real calculator tool under
+        "auto"). "required" tests capability, not default judgment."""
+        with respx.mock:
+            route = respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200, json={"choices": [{"message": {"tool_calls": []}}]}
+                )
+            )
+            check_tool_calling(engine, "Phi-4-mini-instruct")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["tool_choice"] == "required"
+
     def test_unsupported_on_http_400(self, engine: FoundryLocalEngine) -> None:
         with respx.mock:
             respx.post("http://testhost:5273/v1/chat/completions").mock(

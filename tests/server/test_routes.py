@@ -743,6 +743,98 @@ class TestChatCompletions:
         assert executions == ["README.md"]
         assert engine.generate.call_count == 2
 
+    def test_streaming_agent_run_forwards_tool_call_events_over_sse(self):
+        """The desktop/web Chat UI's tool-activity cards (ChatPage.xaml.cs
+        ApplySse) key off named ``tool_call_start``/``tool_call_end`` SSE
+        events. ``_handle_agent_stream`` previously only ever streamed the
+        agent's final answer, so those events — which the agent's
+        ToolExecutor genuinely publishes onto the shared bus — never reached
+        the client. Uses ONE bus for both the agent and the app, matching how
+        ``jarvis serve`` actually wires them (unlike the fixture above, which
+        uses two separate EventBus() instances and so cannot observe this)."""
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.core.types import ToolResult
+        from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+        class _EchoTool(BaseTool):
+            @property
+            def spec(self):
+                return ToolSpec(
+                    name="echo",
+                    description="Echo input",
+                    parameters={
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                    },
+                )
+
+            def execute(self, **params):
+                return ToolResult(
+                    tool_name="echo", content=params["text"], success=True
+                )
+
+        shared_bus = EventBus()
+        engine = _make_engine(content="ENGINE BYPASS")
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_1", "name": "echo", "arguments": '{"text": "hi"}'}
+                ],
+                "usage": {},
+            },
+            {"content": "hi", "finish_reason": "stop", "usage": {}},
+        ]
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=[_EchoTool()],
+            bus=shared_bus,
+            max_turns=3,
+            temperature=0.7,
+            max_tokens=128,
+            system_prompt="Use the configured tools.",
+        )
+        app = create_app(
+            engine,
+            "test-model",
+            agent=agent,
+            bus=shared_bus,
+            config=_test_config(),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "echo hi"}],
+                "stream": True,
+            },
+        )
+
+        assert resp.status_code == 200
+        lines = resp.text.strip().split("\n")
+        named_events: dict[str, list[dict]] = {}
+        current_name = None
+        for line in lines:
+            if line.startswith("event: "):
+                current_name = line[len("event: ") :].strip()
+            elif line.startswith("data: ") and current_name:
+                named_events.setdefault(current_name, []).append(
+                    json.loads(line[len("data: ") :])
+                )
+                current_name = None
+
+        assert named_events.get("tool_call_start"), "no tool_call_start SSE event"
+        assert named_events.get("tool_call_end"), "no tool_call_end SSE event"
+        start_data = named_events["tool_call_start"][0]
+        assert start_data["tool"] == "echo"
+        assert isinstance(start_data["arguments"], str)  # JSON text, not a dict
+        end_data = named_events["tool_call_end"][0]
+        assert end_data["tool"] == "echo"
+        assert end_data["success"] is True
+
     def test_streaming_with_tools_emits_tool_calls_and_bypasses_agent(self):
         """Regression for the streaming analog of #414.
 

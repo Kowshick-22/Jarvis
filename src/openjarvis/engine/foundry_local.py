@@ -230,6 +230,15 @@ def check_tool_calling(
     gives reasoning models (Qwen3, DeepSeek-R1, Phi-4-mini-reasoning) room
     to spend their ``reasoning_content`` budget before emitting the actual
     ``tool_calls`` — 64 cut them off mid-thought and read as unsupported.
+
+    Uses ``tool_choice: "required"``, not ``"auto"``. This checks *capability*
+    (can the model emit a well-formed tool_calls payload at all), not default
+    judgment. With ``"auto"``, Phi-4-mini-instruct declined the contrived
+    "Call ping now." probe outright (and even flatly refused it once) while
+    still answering real tool-shaped questions wrong by guessing instead of
+    calling a real calculator tool — "auto" measures whether the model
+    *bothers*, which a trivial no-op probe can't represent, not whether it
+    *can*.
     """
     payload: Dict[str, Any] = {
         "model": model,
@@ -237,7 +246,7 @@ def check_tool_calling(
         "temperature": 0,
         "max_tokens": 512,
         "tools": _TRIVIAL_TOOL,
-        "tool_choice": "auto",
+        "tool_choice": "required",
         "stream": False,
     }
     try:
