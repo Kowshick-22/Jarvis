@@ -27,7 +27,7 @@ public sealed class CloudKeyRow : INotifyPropertyChanged
         }
     }
 
-    public string PlaceholderText => IsConnected ? "Saved in secure storage" : EnvVarName;
+    public string PlaceholderText => IsConnected ? "Saved to your local profile" : EnvVarName;
 }
 
 /// <summary><c>POST /v1/cloud/reload</c>. <c>Status</c> is "ok", "no_cloud"
