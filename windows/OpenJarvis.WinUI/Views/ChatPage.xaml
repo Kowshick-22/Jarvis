@@ -96,20 +96,14 @@
                     AutomationProperties.Name="Toggle theme">
                     <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE793;" FontSize="16" />
                 </Button>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                    <ComboBox
-                        x:Name="ModelBox"
-                        Header="Model"
-                        MinWidth="220"
-                        SelectionChanged="ModelBox_SelectionChanged"
-                        AutomationProperties.Name="Model" />
-                    <TextBlock
-                        x:Name="HardwareText"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        TextWrapping="Wrap"
-                        AutomationProperties.LiveSetting="Polite" />
-                </StackPanel>
+                <ComboBox
+                    x:Name="ModelBox"
+                    Grid.Column="1"
+                    Header="Model"
+                    MinWidth="220"
+                    HorizontalAlignment="Left"
+                    SelectionChanged="ModelBox_SelectionChanged"
+                    AutomationProperties.Name="Model" />
             </Grid>
 
             <ListView
@@ -217,6 +211,7 @@
                     MinHeight="40"
                     Margin="8,24,0,0"
                     Click="Send_Click"
+                    IsEnabled="False"
                     AccessKey="S"
                     AutomationProperties.Name="Send message" />
                 <Button

@@ -16,6 +16,7 @@ public sealed partial class ChatPage : Page
     private readonly ObservableCollection<ChatMessage> _messages = [];
     private readonly ObservableCollection<ToolCallInfo> _tools = [];
     private CancellationTokenSource? _sendCts;
+    private bool _sending;
 
     private Conversation? _active;
     private bool _suppressModelChange;
@@ -62,7 +63,16 @@ public sealed partial class ChatPage : Page
 
     private void OnBackendStatusChanged(object? sender, EventArgs e)
     {
-        DispatcherQueue.TryEnqueue(SyncSelectedModel);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            SyncSelectedModel();
+            SyncSendButton();
+        });
+    }
+
+    private void SyncSendButton()
+    {
+        SendButton.IsEnabled = !_sending && App.Services.Supervisor.Status.Ready;
     }
 
     private void SyncSelectedModel()
@@ -98,6 +108,7 @@ public sealed partial class ChatPage : Page
         }
 
         ReloadMessages();
+        SyncSendButton();
         await RefreshServerAsync();
     }
 
@@ -117,7 +128,6 @@ public sealed partial class ChatPage : Page
 
     private async Task RefreshServerAsync()
     {
-        var info = await App.Services.Api.GetInfoAsync(CancellationToken.None);
         var catalog = await App.Services.Foundry.ListCatalogAsync(CancellationToken.None);
         var apiModels = await App.Services.Api.GetModelsAsync(CancellationToken.None);
         _suppressModelChange = true;
@@ -133,18 +143,6 @@ public sealed partial class ChatPage : Page
         finally
         {
             _suppressModelChange = false;
-        }
-
-        if (info?.Hardware is { } hw)
-        {
-            var ep = string.IsNullOrWhiteSpace(hw.ExecutionProvider) ? "unknown" : hw.ExecutionProvider;
-            var fallback = hw.ExecutionProviderFallback ? " (CPU fallback)" : "";
-            var gpu = hw.Gpu?.Name ?? "no GPU reported";
-            HardwareText.Text = $"{info.Engine} · {info.Model} · {ep}{fallback} · {gpu}";
-            if (info.ToolCalling is { Supported: false })
-            {
-                HardwareText.Text += " · tools unavailable";
-            }
         }
     }
 
@@ -323,7 +321,10 @@ public sealed partial class ChatPage : Page
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down) == false)
         {
             e.Handled = true;
-            await SendAsync();
+            if (SendButton.IsEnabled)
+            {
+                await SendAsync();
+            }
         }
     }
 
@@ -389,7 +390,8 @@ public sealed partial class ChatPage : Page
 
         _sendCts?.Cancel();
         _sendCts = new CancellationTokenSource();
-        SendButton.IsEnabled = false;
+        _sending = true;
+        SyncSendButton();
         CancelButton.IsEnabled = true;
         var payload = new
         {
@@ -425,7 +427,8 @@ public sealed partial class ChatPage : Page
         }
         finally
         {
-            SendButton.IsEnabled = true;
+            _sending = false;
+            SyncSendButton();
             CancelButton.IsEnabled = false;
             if (App.Services.Conversations.Items.Contains(active))
             {
