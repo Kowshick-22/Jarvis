@@ -309,6 +309,7 @@ public sealed class AppSettings
     public string SelectedAgent { get; set; } = "simple";
     public bool ChatSidebarCollapsed { get; set; }
     public double ChatSidebarWidth { get; set; }
+    public double NavPaneWidth { get; set; }
     public bool AllowCloud { get; set; }
 }
 

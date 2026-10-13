@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using OpenJarvis.WinUI.Services;
 using OpenJarvis.WinUI.Views;
 
@@ -7,6 +9,13 @@ namespace OpenJarvis.WinUI;
 
 public sealed partial class MainWindow : Window
 {
+    private const double DefaultNavPaneWidth = 260;
+    private const double MinNavPaneWidth = 200;
+    private const double MaxNavPaneWidth = 480;
+    private bool _resizingNavPane;
+    private double _resizeStartWidth;
+    private double _resizeStartX;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -18,8 +27,153 @@ public sealed partial class MainWindow : Window
         NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("chat");
 
+        NavView.OpenPaneLength = ClampNavPaneWidth(SavedNavPaneWidth());
+        UpdateNavPaneSplitterPosition();
+
         _ = CheckUpdatesAsync();
         Closed += (_, _) => App.Services.Supervisor.Dispose();
+    }
+
+    private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_resizingNavPane)
+        {
+            return;
+        }
+
+        NavView.OpenPaneLength = ClampNavPaneWidth(SavedNavPaneWidth());
+        UpdateNavPaneSplitterPosition();
+    }
+
+    private void NavPaneSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _resizingNavPane = true;
+        _resizeStartWidth = NavView.OpenPaneLength;
+        _resizeStartX = e.GetCurrentPoint(RootGrid).Position.X;
+        NavPaneSplitter.CapturePointer(e.Pointer);
+        ShowNavSplitterActive();
+        e.Handled = true;
+    }
+
+    private void NavPaneSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingNavPane)
+        {
+            return;
+        }
+
+        var x = e.GetCurrentPoint(RootGrid).Position.X;
+        NavView.OpenPaneLength = ClampNavPaneWidth(_resizeStartWidth + (x - _resizeStartX));
+        UpdateNavPaneSplitterPosition();
+        e.Handled = true;
+    }
+
+    private void NavPaneSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingNavPane)
+        {
+            return;
+        }
+
+        FinishNavPaneResize();
+        NavPaneSplitter.ReleasePointerCapture(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void NavPaneSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingNavPane)
+        {
+            return;
+        }
+
+        FinishNavPaneResize();
+    }
+
+    private void NavPaneSplitter_PointerEntered(object sender, PointerRoutedEventArgs e) =>
+        ShowNavSplitterActive();
+
+    private void NavPaneSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_resizingNavPane)
+        {
+            ShowNavSplitterIdle();
+        }
+    }
+
+    private void NavPaneSplitter_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        var delta = e.Key switch
+        {
+            Windows.System.VirtualKey.Left => -16d,
+            Windows.System.VirtualKey.Right => 16d,
+            _ => 0d
+        };
+        if (delta == 0)
+        {
+            return;
+        }
+
+        NavView.OpenPaneLength = ClampNavPaneWidth(NavView.OpenPaneLength + delta);
+        UpdateNavPaneSplitterPosition();
+        PersistNavPaneWidth();
+        e.Handled = true;
+    }
+
+    private void FinishNavPaneResize()
+    {
+        _resizingNavPane = false;
+        PersistNavPaneWidth();
+        ShowNavSplitterIdle();
+    }
+
+    private void PersistNavPaneWidth()
+    {
+        App.Services.Settings.Current.NavPaneWidth = NavView.OpenPaneLength;
+        App.Services.Settings.Persist();
+    }
+
+    private static double SavedNavPaneWidth()
+    {
+        var saved = App.Services.Settings.Current.NavPaneWidth;
+        return saved >= MinNavPaneWidth ? saved : DefaultNavPaneWidth;
+    }
+
+    private double ClampNavPaneWidth(double width)
+    {
+        var contentWidth = RootGrid.ActualWidth;
+        var max = contentWidth - 400; // leave room for page content
+        if (contentWidth <= 0 || max < MinNavPaneWidth)
+        {
+            max = MaxNavPaneWidth;
+        }
+
+        return Math.Clamp(width, MinNavPaneWidth, Math.Min(max, MaxNavPaneWidth));
+    }
+
+    private void UpdateNavPaneSplitterPosition()
+    {
+        NavPaneSplitter.Margin = new Thickness(NavView.OpenPaneLength, 0, 0, 0);
+    }
+
+    private void ShowNavSplitterActive()
+    {
+        NavPaneSplitterBar.Opacity = 1;
+        if (Application.Current.Resources.TryGetValue("AccentFillColorDefaultBrush", out var accent) &&
+            accent is Brush accentBrush)
+        {
+            NavPaneSplitterBar.Background = accentBrush;
+        }
+    }
+
+    private void ShowNavSplitterIdle()
+    {
+        NavPaneSplitterBar.Opacity = 0.6;
+        if (Application.Current.Resources.TryGetValue("DividerStrokeColorDefaultBrush", out var divider) &&
+            divider is Brush dividerBrush)
+        {
+            NavPaneSplitterBar.Background = dividerBrush;
+        }
     }
 
     private bool _reappliedThemeAfterActivation;
