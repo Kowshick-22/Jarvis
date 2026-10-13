@@ -189,13 +189,31 @@ public sealed class ChatMessage : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-public sealed class Conversation
+public sealed class Conversation : INotifyPropertyChanged
 {
+    private string _title = "New chat";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     [JsonPropertyName("id")]
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
+    /// <summary>Display name only. Chats are stored and selected by <see cref="Id"/>.</summary>
     [JsonPropertyName("title")]
-    public string Title { get; set; } = "New chat";
+    public string Title
+    {
+        get => _title;
+        set
+        {
+            if (_title == value)
+            {
+                return;
+            }
+
+            _title = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Title)));
+        }
+    }
 
     [JsonPropertyName("createdAt")]
     public long CreatedAt { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

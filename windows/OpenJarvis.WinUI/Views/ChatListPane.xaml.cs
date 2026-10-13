@@ -90,25 +90,97 @@ public sealed partial class ChatListPane : UserControl
         }
     }
 
+    private void ConversationList_ContainerContentChanging(
+        ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.ItemContainer is not ListViewItem container)
+        {
+            return;
+        }
+
+        if (args.InRecycleQueue || args.Item is not Conversation conversation)
+        {
+            container.ContextFlyout = null;
+            return;
+        }
+
+        var rename = new MenuFlyoutItem
+        {
+            Text = "Rename",
+            Tag = conversation.Id,
+            Icon = new SymbolIcon(Symbol.Rename)
+        };
+        rename.Click += RenameChat_Click;
+        var delete = new MenuFlyoutItem
+        {
+            Text = "Delete",
+            Tag = conversation.Id,
+            Icon = new SymbolIcon(Symbol.Delete)
+        };
+        delete.Click += DeleteChat_Click;
+
+        var menu = new MenuFlyout();
+        menu.Items.Add(rename);
+        menu.Items.Add(delete);
+        container.ContextFlyout = menu;
+    }
+
     private void DeleteChat_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         _deletePressed = true;
     }
 
+    private async void RenameChat_Click(object sender, RoutedEventArgs e)
+    {
+        var conversation = FindConversation(sender);
+        if (conversation is null)
+        {
+            return;
+        }
+
+        var box = new TextBox
+        {
+            Text = conversation.Title,
+            PlaceholderText = "Chat name",
+            MinWidth = 280
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "Rename chat",
+            Content = box,
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+            RequestedTheme = App.Services.Settings.CurrentElementTheme()
+        };
+        dialog.Opened += (_, _) =>
+        {
+            box.SelectAll();
+            box.Focus(FocusState.Programmatic);
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        App.Services.Conversations.Rename(conversation, box.Text);
+        if (!string.IsNullOrWhiteSpace(ConversationSearchBox.Text))
+        {
+            ApplyConversationFilter();
+        }
+    }
+
     private async void DeleteChat_Click(object sender, RoutedEventArgs e)
     {
         _deletePressed = false;
-        if (sender is not FrameworkElement { Tag: string id })
+        var conversation = FindConversation(sender);
+        if (conversation is null)
         {
             return;
         }
 
         var conversations = App.Services.Conversations;
-        var conversation = conversations.Items.FirstOrDefault(c => c.Id == id);
-        if (conversation is null)
-        {
-            return;
-        }
 
         var dialog = new ContentDialog
         {
@@ -130,5 +202,15 @@ public sealed partial class ChatListPane : UserControl
         {
             conversations.NewConversation(App.Services.Settings.Current.SelectedModel);
         }
+    }
+
+    private static Conversation? FindConversation(object sender)
+    {
+        if (sender is not FrameworkElement { Tag: string id })
+        {
+            return null;
+        }
+
+        return App.Services.Conversations.Items.FirstOrDefault(c => c.Id == id);
     }
 }

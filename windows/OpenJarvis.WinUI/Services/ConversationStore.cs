@@ -83,6 +83,18 @@ public sealed class ConversationStore
         ActiveChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public void Rename(Conversation conversation, string title)
+    {
+        var trimmed = title.Trim();
+        if (trimmed.Length == 0 || conversation.Title == trimmed)
+        {
+            return;
+        }
+
+        conversation.Title = trimmed;
+        Save();
+    }
+
     public void Touch(Conversation conversation)
     {
         conversation.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
