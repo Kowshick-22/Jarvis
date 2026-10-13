@@ -71,7 +71,11 @@
             <!-- Step 3: model/schedule/advanced -->
             <StackPanel x:Name="Step3" Spacing="12" Visibility="Collapsed">
                 <TextBlock Text="Step 4 of 4 · Model and schedule" Style="{StaticResource SubtitleTextBlockStyle}" />
-                <ComboBox x:Name="ModelBox" Header="Model" HorizontalAlignment="Stretch" />
+                <ComboBox
+                    x:Name="ModelBox"
+                    Header="Model"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="ModelBox_SelectionChanged" />
                 <ComboBox x:Name="ScheduleBox" Header="Schedule" SelectionChanged="ScheduleBox_SelectionChanged" HorizontalAlignment="Stretch">
                     <ComboBoxItem Content="Manual" Tag="manual" />
                     <ComboBoxItem Content="Hourly" Tag="hourly" />

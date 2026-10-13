@@ -6,7 +6,10 @@ namespace OpenJarvis.WinUI.Views;
 
 public sealed partial class CreateAgentDialog : ContentDialog
 {
+    private const string AvailableSeparator = "── Available to download ──";
+
     private int _step;
+    private bool _suppressModelChange;
     private AgentTemplate? _selectedTemplate;
     private List<ToolCatalogItem> _allTools = [];
 
@@ -32,12 +35,9 @@ public sealed partial class CreateAgentDialog : ContentDialog
             .Select(g => new ToolCatalogCategory { Category = g.Key, Items = g.ToList() })
             .ToList();
 
-        var models = await App.Services.Api.GetModelsAsync(CancellationToken.None);
-        ModelBox.ItemsSource = models;
-        if (models.Count > 0)
-        {
-            ModelBox.SelectedIndex = 0;
-        }
+        var catalog = await App.Services.Foundry.ListCatalogAsync(CancellationToken.None);
+        var apiModels = await App.Services.Api.GetModelsAsync(CancellationToken.None);
+        PopulateModelPicker(catalog, apiModels);
 
         ScheduleBox.SelectedIndex = 0;
         MemoryExtractionBox.SelectedIndex = 0;
@@ -77,6 +77,126 @@ public sealed partial class CreateAgentDialog : ContentDialog
         MaxTurnsBox.Value = template.MaxTurns;
         TemperatureBox.Value = template.Temperature;
         AdvanceStep();
+    }
+
+    private void PopulateModelPicker(FoundryModelCatalog catalog, IReadOnlyList<string> apiModels)
+    {
+        var installed = catalog.Installed.Count > 0
+            ? catalog.Installed
+            : apiModels;
+        var selected = App.Services.Settings.Current.SelectedModel;
+        if (!string.IsNullOrWhiteSpace(selected) &&
+            !installed.Contains(selected, StringComparer.OrdinalIgnoreCase) &&
+            !catalog.Available.Contains(selected, StringComparer.OrdinalIgnoreCase))
+        {
+            installed = installed.Append(selected).ToArray();
+        }
+
+        _suppressModelChange = true;
+        try
+        {
+            ModelBox.ItemsSource = null;
+            ModelBox.Items.Clear();
+            foreach (var id in installed)
+            {
+                ModelBox.Items.Add(new ComboBoxItem { Content = id, Tag = id });
+            }
+
+            if (catalog.Available.Count > 0)
+            {
+                ModelBox.Items.Add(new ComboBoxItem
+                {
+                    Content = AvailableSeparator,
+                    IsEnabled = false,
+                    IsHitTestVisible = false
+                });
+                foreach (var id in catalog.Available)
+                {
+                    ModelBox.Items.Add(new ComboBoxItem { Content = id, Tag = id });
+                }
+            }
+
+            if (ModelBox.Items.Count == 0 && !string.IsNullOrWhiteSpace(selected))
+            {
+                ModelBox.Items.Add(new ComboBoxItem { Content = selected, Tag = selected });
+            }
+
+            if (!SelectModelInPicker(selected))
+            {
+                ModelBox.SelectedIndex = FirstSelectableIndex();
+            }
+        }
+        finally
+        {
+            _suppressModelChange = false;
+        }
+    }
+
+    private bool SelectModelInPicker(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return false;
+        }
+
+        foreach (var item in ModelBox.Items)
+        {
+            if (item is ComboBoxItem combo &&
+                combo.IsEnabled &&
+                string.Equals(combo.Tag as string ?? combo.Content as string, model, StringComparison.OrdinalIgnoreCase))
+            {
+                ModelBox.SelectedItem = combo;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private int FirstSelectableIndex()
+    {
+        for (var i = 0; i < ModelBox.Items.Count; i++)
+        {
+            if (ModelBox.Items[i] is ComboBoxItem { IsEnabled: true })
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private string? SelectedModelId()
+    {
+        return ModelBox.SelectedItem switch
+        {
+            ComboBoxItem { IsEnabled: false } => null,
+            ComboBoxItem { Tag: string tag } => tag,
+            ComboBoxItem { Content: string content } => content,
+            string id => id,
+            _ => null
+        };
+    }
+
+    private void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressModelChange || ModelBox.SelectedItem is not ComboBoxItem { IsEnabled: false })
+        {
+            return;
+        }
+
+        _suppressModelChange = true;
+        try
+        {
+            if (!SelectModelInPicker(App.Services.Settings.Current.SelectedModel))
+            {
+                ModelBox.SelectedIndex = FirstSelectableIndex();
+            }
+        }
+        finally
+        {
+            _suppressModelChange = false;
+        }
     }
 
     private static void SelectComboTag(ComboBox box, string tag)
@@ -132,7 +252,7 @@ public sealed partial class CreateAgentDialog : ContentDialog
         {
             ["instruction"] = InstructionBox.Text,
             ["tools"] = selectedTools,
-            ["model"] = ModelBox.SelectedItem as string,
+            ["model"] = SelectedModelId(),
             ["schedule_type"] = scheduleType,
             ["schedule_value"] = string.IsNullOrWhiteSpace(ScheduleValueBox.Text) ? null : ScheduleValueBox.Text,
             ["max_turns"] = (int)MaxTurnsBox.Value,
