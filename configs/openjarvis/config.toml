@@ -68,7 +68,7 @@ host = "http://localhost:8080"
 [engine.apple_fm]
 host = "http://localhost:8079"                # OpenAI-compatible shim
 
-# Foundry Local (Windows ML). Port is assigned at service start.
+# Foundry Local (Windows ML). Port is assigned at server start.
 # [engine.foundry_local]
 # host = "http://localhost:5273"
 

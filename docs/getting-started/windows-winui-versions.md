@@ -19,8 +19,8 @@ Record the versions this tree was written against. Bump this page when CI or the
 | WiX | **5.0.2** | MSI + Burn bundle |
 | CPython | **3.12.x win-arm64** | Embeddable zip; 3.14 has no numpy Windows wheels |
 | Rust | stable `aarch64-pc-windows-msvc` | `uv sync --group desktop-native` builds `openjarvis_rust` |
-| Foundry Local | **0.10.1** `foundry-0.10.1-win-arm64-winml.msix` | Windows ML build, not the CPU-only MSIX |
-| Windows ML | Foundry Local 0.10.x / WinML 2.0 | Execution providers downloaded on first run |
+| Foundry Local | **0.11.0** `foundry-0.11.0-win-arm64.msix` (Setup also tries `*-winml.msix`) | Installed by Setup via `Add-AppxPackage`; release tag `cli-preview-0.11.0` |
+| Windows ML | Foundry Local 0.11.x / WinML 2.0 | Execution providers downloaded on first run |
 | NVIDIA GPU driver | Use the Surface / NVIDIA ARM64 driver for RTX Spark N1X | Floor is whatever Windows Update ships for this SKU; record the exact version on the device in the acceptance doc |
 | CUDA (if TensorRT RTX / CUDA EP) | **12.5** recommended by Foundry Local NVIDIA EPs | Confirm on-device; N1X may use a vendor stack instead of desktop CUDA |
 | Default model alias | **Phi-4-mini-instruct** | Foundry catalog alias; runtime picks CUDA / TensorRT RTX / WebGPU / CPU |

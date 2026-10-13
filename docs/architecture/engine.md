@@ -213,7 +213,7 @@ The Lemonade backend connects to the [Lemonade](https://lemonade-server.ai/) inf
 
 ### Foundry Local
 
-The Foundry Local backend talks to Microsoft Foundry Local's OpenAI-compatible HTTP API. On Windows it uses Windows ML execution providers (CUDA, TensorRT RTX, WebGPU, QNN, or CPU). The listen port is assigned when the service starts; OpenJarvis discovers it via `foundry service status` or `FOUNDRY_LOCAL_HOST` and writes `[engine.foundry_local] host`.
+The Foundry Local backend talks to Microsoft Foundry Local's OpenAI-compatible HTTP API. On Windows it uses Windows ML execution providers (CUDA, TensorRT RTX, WebGPU, QNN, or CPU). The listen port is assigned when the server starts; OpenJarvis discovers it via `foundry server status` (or legacy `foundry service status`) or `FOUNDRY_LOCAL_HOST` and writes `[engine.foundry_local] host`.
 
 - **Fallback host:** `http://localhost:5273` (only if discovery fails)
 - **Health check:** `GET /v1/models`

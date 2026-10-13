@@ -35,12 +35,16 @@
                         <Button
                             Grid.Column="1"
                             Content="Approve"
+                            MinWidth="88"
+                            MinHeight="40"
                             Tag="{x:Bind Id}"
                             Click="Approve_Click"
                             AutomationProperties.Name="Approve" />
                         <Button
                             Grid.Column="2"
                             Content="Deny"
+                            MinWidth="88"
+                            MinHeight="40"
                             Tag="{x:Bind Id}"
                             Click="Deny_Click"
                             AutomationProperties.Name="Deny" />

@@ -1,9 +1,10 @@
 """Foundry Local inference engine (Windows ML / OpenAI-compatible HTTP).
 
 Foundry Local exposes an OpenAI-compatible ``/v1`` server. The listen port is
-assigned at service start, so callers should prefer :func:`discover_foundry_host`
-over the fallback default. Agents, tools, and ``jarvis serve`` use this engine
-through the normal ``InferenceEngine`` registry — it is not a side demo.
+assigned when the server starts, so callers should prefer
+:func:`discover_foundry_host` over the fallback default. Agents, tools, and
+``jarvis serve`` use this engine through the normal ``InferenceEngine``
+registry — it is not a side demo.
 """
 
 from __future__ import annotations
@@ -106,7 +107,8 @@ def discover_foundry_host() -> str:
     """Return Foundry Local's OpenAI-compatible base URL.
 
     Order: ``FOUNDRY_LOCAL_HOST`` / ``FOUNDRY_LOCAL_ENDPOINT``, then
-    ``foundry service status``, then the documented localhost fallback.
+    ``foundry server status`` (current CLI) / ``foundry service status``
+    (legacy), then the documented localhost fallback.
     """
     for env_name in ("FOUNDRY_LOCAL_HOST", "FOUNDRY_LOCAL_ENDPOINT"):
         env_host = os.environ.get(env_name, "").strip()
@@ -116,6 +118,8 @@ def discover_foundry_host() -> str:
     foundry = shutil.which("foundry")
     if foundry:
         for args in (
+            [foundry, "server", "status", "--json"],
+            [foundry, "server", "status"],
             [foundry, "service", "status", "--json"],
             [foundry, "service", "status"],
         ):
@@ -209,6 +213,12 @@ def probe_execution_provider(host: str) -> dict[str, Any]:
     }
 
 
+def infer_cpu_fallback_from_model(model: str | None) -> bool:
+    """True when the catalog id itself indicates a CPU EP (e.g. *-generic-cpu)."""
+    name = (model or "").lower()
+    return "generic-cpu" in name or name.endswith("-cpu") or ":cpu" in name
+
+
 def check_tool_calling(
     engine: "FoundryLocalEngine",
     model: str,
@@ -216,13 +226,16 @@ def check_tool_calling(
     """POST a trivial tool schema and record whether Foundry accepts it.
 
     Does not retry without tools (the shared OpenAI-compat client does). A
-    400 here means this model cannot drive agent tool loops.
+    400 here means this model cannot drive agent tool loops. 512 tokens
+    gives reasoning models (Qwen3, DeepSeek-R1, Phi-4-mini-reasoning) room
+    to spend their ``reasoning_content`` budget before emitting the actual
+    ``tool_calls`` — 64 cut them off mid-thought and read as unsupported.
     """
     payload: Dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": "Call ping now."}],
         "temperature": 0,
-        "max_tokens": 64,
+        "max_tokens": 512,
         "tools": _TRIVIAL_TOOL,
         "tool_choice": "auto",
         "stream": False,
@@ -262,10 +275,21 @@ def check_tool_calling(
             "reason": "Foundry Local returned a non-JSON tool-calling response.",
         }
     choices = data.get("choices") or []
-    message = (choices[0].get("message") if choices else {}) or {}
+    choice = choices[0] if choices else {}
+    message = (choice.get("message") if choice else {}) or {}
     tool_calls = message.get("tool_calls") or []
     if tool_calls:
         return {"supported": True, "reason": ""}
+    if choice.get("finish_reason") == "length":
+        return {
+            "supported": False,
+            "reason": (
+                "Foundry Local truncated the response at the token limit "
+                "before emitting a tool_calls payload (this model spends "
+                "tokens on reasoning_content first). Agent tool loops need "
+                "a larger max_tokens budget for this model."
+            ),
+        }
     return {
         "supported": False,
         "reason": (
@@ -389,5 +413,6 @@ __all__ = [
     "check_tool_calling",
     "classify_execution_provider",
     "discover_foundry_host",
+    "infer_cpu_fallback_from_model",
     "probe_execution_provider",
 ]

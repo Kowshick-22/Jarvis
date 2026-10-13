@@ -539,7 +539,8 @@ class FoundryLocalEngineConfig:
 
     ``host`` is the OpenAI-compatible base URL *without* a guaranteed port.
     The WinUI supervisor and ``discover_foundry_host()`` write the live
-    endpoint here after ``foundry service status``.
+    endpoint here after ``foundry server status`` (or legacy
+    ``foundry service status``).
     """
 
     host: str = "http://localhost:5273"

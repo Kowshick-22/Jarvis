@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -94,6 +96,32 @@ class TestDiscoverFoundryHost:
             lambda *args, **kwargs: _Result(),
         )
         assert discover_foundry_host() == "http://127.0.0.1:61234"
+
+    def test_prefers_server_status_over_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FOUNDRY_LOCAL_HOST", raising=False)
+        monkeypatch.delenv("FOUNDRY_LOCAL_ENDPOINT", raising=False)
+        calls: list[list[str]] = []
+
+        class _Result:
+            def __init__(self, stdout: str = "") -> None:
+                self.stdout = stdout
+                self.stderr = ""
+
+        def _run(args: list[str], **kwargs: object) -> _Result:
+            calls.append(list(args))
+            if args[1:3] == ["server", "status"]:
+                return _Result("http://127.0.0.1:59959/v1")
+            return _Result()
+
+        monkeypatch.setattr(
+            "openjarvis.engine.foundry_local.shutil.which", lambda _: "/usr/bin/foundry"
+        )
+        monkeypatch.setattr("openjarvis.engine.foundry_local.subprocess.run", _run)
+        assert discover_foundry_host() == "http://127.0.0.1:59959"
+        assert calls[0][1:3] == ["server", "status"]
+        assert not any(call[1:3] == ["service", "status"] for call in calls)
 
 
 class TestExecutionProvider:
@@ -212,6 +240,44 @@ class TestToolCallingProbe:
             result = check_tool_calling(engine, "Phi-4-mini-instruct")
         assert result["supported"] is False
         assert "HTTP 400" in result["reason"]
+
+    def test_probe_requests_enough_budget_for_reasoning_models(
+        self, engine: FoundryLocalEngine
+    ) -> None:
+        """Reasoning models (Qwen3, DeepSeek-R1) spend tokens on
+        reasoning_content before emitting tool_calls. A too-small max_tokens
+        truncates them first and misreports tool calling as unsupported."""
+        with respx.mock:
+            route = respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200, json={"choices": [{"message": {"tool_calls": []}}]}
+                )
+            )
+            check_tool_calling(engine, "qwen3-0.6b-generic-cpu")
+        assert route.calls.last.request.read()
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["max_tokens"] >= 512
+
+    def test_unsupported_reason_distinguishes_truncation(
+        self, engine: FoundryLocalEngine
+    ) -> None:
+        with respx.mock:
+            respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {
+                                "finish_reason": "length",
+                                "message": {"content": "", "reasoning_content": "…"},
+                            }
+                        ]
+                    },
+                )
+            )
+            result = check_tool_calling(engine, "qwen3-0.6b-generic-cpu")
+        assert result["supported"] is False
+        assert "truncated" in result["reason"]
 
 
 class TestFoundryHealth:

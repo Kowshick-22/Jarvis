@@ -1,11 +1,11 @@
 # Downloads embeddable CPython 3.12 win-arm64, syncs OpenJarvis with --extra server
-# --group desktop-native, and stages Foundry Local install notes next to the app.
+# --group desktop-native, and stages payload next to the published WinUI app.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$PublishDir,
     [string]$PythonVersion = "3.12.10",
-    [string]$FoundryVersion = "0.10.1"
+    [string]$FoundryVersion = "0.11.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,17 +50,30 @@ Write-Host "Syncing OpenJarvis (server extra + desktop-native Rust extension)...
 Push-Location $Root
 try {
     & uv sync --python $Venv\Scripts\python.exe --extra server --group desktop-native
+    # Ensure the venv has the project editable / jarvis entrypoint.
+    & uv pip install --python $Venv\Scripts\python.exe -e ".[server]"
 } finally {
     Pop-Location
 }
 
+# Stage a minimal source tree for uv run fallbacks and config discovery.
+$PayloadSrc = Join-Path $Payload "src"
+New-Item -ItemType Directory -Force -Path $PayloadSrc | Out-Null
+foreach ($item in @("src", "pyproject.toml", "configs", "README.md")) {
+    $from = Join-Path $Root $item
+    if (Test-Path $from) {
+        Copy-Item -Recurse -Force $from (Join-Path $PayloadSrc (Split-Path $item -Leaf))
+    }
+}
+
 $FoundryNotes = @"
-Foundry Local (Windows ML) $FoundryVersion
-Download the ARM64 WinML MSIX from:
-https://github.com/microsoft/foundry-local/releases
-Asset: foundry-$FoundryVersion-win-arm64-winml.msix
-Install with: Add-AppxPackage .\foundry-$FoundryVersion-win-arm64-winml.msix
-Then: foundry service start
+Foundry Local $FoundryVersion (ARM64)
+OpenJarvis Setup installs Foundry Local automatically (no terminal).
+Manual fallback:
+  https://github.com/microsoft/Foundry-Local/releases/tag/cli-preview-$FoundryVersion
+  Add-AppxPackage .\foundry-$FoundryVersion-win-arm64-winml.msix
+  (or foundry-$FoundryVersion-win-arm64.msix on 0.11+)
+  foundry server start
 "@
 Set-Content -Path (Join-Path $Payload "FOUNDRY_LOCAL.txt") -Value $FoundryNotes
 
@@ -68,14 +81,13 @@ $InstallCmd = Join-Path $Payload "install-runtime.ps1"
 @'
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Write-Host "OpenJarvis runtime payload is at $Root"
-Write-Host "Add payload\venv\Scripts to PATH for jarvis.exe, or let the WinUI app locate it under %LOCALAPPDATA%\OpenJarvis."
 $Dest = Join-Path $env:LOCALAPPDATA "OpenJarvis"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-Copy-Item -Recurse -Force (Join-Path $Root "venv") (Join-Path $Dest "venv")
-$Src = Resolve-Path (Join-Path $Root "..\..\..\..")
-if (Test-Path (Join-Path $Src "src\openjarvis")) {
-    Copy-Item -Recurse -Force $Src (Join-Path $Dest "src")
+if (Test-Path (Join-Path $Root "venv")) {
+    Copy-Item -Recurse -Force (Join-Path $Root "venv") (Join-Path $Dest "venv")
+}
+if (Test-Path (Join-Path $Root "src")) {
+    Copy-Item -Recurse -Force (Join-Path $Root "src") (Join-Path $Dest "src")
 }
 Write-Host "Runtime staged under $Dest"
 '@ | Set-Content -Path $InstallCmd

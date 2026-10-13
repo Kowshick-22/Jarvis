@@ -11,15 +11,16 @@
           Theme="hyperlinkLicense"
           ShowVersion="yes" />
     </BootstrapperApplication>
-    <bal:Condition Message="OpenJarvis requires an ARM64 Windows PC (Windows 11 24H2 / build 26100 or later, including Surface Laptop Ultra on 26H1).">
-      VersionNT64 AND ARM64
-    </bal:Condition>
+    <!-- NativeMachine 43620 = IMAGE_FILE_MACHINE_ARM64 -->
+    <bal:Condition
+        Condition="NativeMachine = 43620"
+        Message="OpenJarvis requires an ARM64 Windows PC (Windows 11 24H2 / build 26100 or later, including Surface Laptop Ultra on 26H1)." />
     <Chain>
       <MsiPackage
           Id="OpenJarvisApp"
           SourceFile="$(var.MsiPath)"
-          DisplayInternalUI="no"
-          Vital="yes" />
+          Vital="yes"
+          Visible="no" />
     </Chain>
   </Bundle>
 </Wix>

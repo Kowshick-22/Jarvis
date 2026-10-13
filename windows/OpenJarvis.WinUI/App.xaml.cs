@@ -30,6 +30,16 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Services = AppServices.Create();
+        try
+        {
+            RuntimeBootstrap.EnsureLocalRuntime();
+        }
+        catch (Exception ex)
+        {
+            Services.Supervisor.ReportUiError(
+                "Could not stage the OpenJarvis backend runtime: " + ex.Message);
+        }
+
         _window = new MainWindow();
         MainWindowInstance = _window;
         _window.Activate();

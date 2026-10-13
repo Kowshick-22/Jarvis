@@ -6,9 +6,14 @@
         <StackPanel MaxWidth="720" Spacing="16">
             <TextBlock Text="Set up OpenJarvis" Style="{StaticResource TitleTextBlockStyle}" />
             <TextBlock
-                Text="This downloads Foundry Local models and Windows ML execution providers. After setup, chat works without a network."
+                Text="This installs Foundry Local (Windows ML) if needed, then downloads the default model and execution providers. After setup, chat works without a network. No terminal or Visual Studio is required."
                 TextWrapping="Wrap" />
-            <ProgressBar x:Name="SetupProgress" IsIndeterminate="True" AutomationProperties.Name="Setup progress" />
+            <ProgressBar
+                x:Name="SetupProgress"
+                Minimum="0"
+                Maximum="100"
+                IsIndeterminate="False"
+                AutomationProperties.Name="Setup progress" />
             <TextBlock
                 x:Name="SetupStatus"
                 Text="Waiting to start…"
@@ -18,11 +23,24 @@
                 x:Name="SetupError"
                 IsOpen="False"
                 Severity="Error"
-                IsClosable="False"
+                IsClosable="True"
                 Title="Setup could not finish" />
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Start setup" Click="Start_Click" AccessKey="S" AutomationProperties.Name="Start setup" />
-                <Button Content="Skip for now" Click="Skip_Click" AutomationProperties.Name="Skip setup" />
+                <Button
+                    x:Name="StartButton"
+                    Content="Start setup"
+                    MinWidth="120"
+                    MinHeight="40"
+                    Click="Start_Click"
+                    AccessKey="S"
+                    AutomationProperties.Name="Start setup" />
+                <Button
+                    x:Name="SkipButton"
+                    Content="Skip for now"
+                    MinWidth="120"
+                    MinHeight="40"
+                    Click="Skip_Click"
+                    AutomationProperties.Name="Skip setup" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

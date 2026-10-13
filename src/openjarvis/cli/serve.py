@@ -214,6 +214,7 @@ def serve(
     if engine_name == "foundry_local":
         from openjarvis.engine.foundry_local import (
             check_tool_calling,
+            infer_cpu_fallback_from_model,
             probe_execution_provider,
         )
 
@@ -223,6 +224,16 @@ def serve(
         probe_model = (
             model_name or config.server.model or config.intelligence.default_model or ""
         )
+        if (
+            not config.hardware.execution_provider_fallback
+            and infer_cpu_fallback_from_model(probe_model)
+        ):
+            config.hardware.execution_provider_fallback = True
+            if (
+                not config.hardware.execution_provider
+                or config.hardware.execution_provider == "unknown"
+            ):
+                config.hardware.execution_provider = "CPUExecutionProvider"
         if probe_model:
             try:
                 tool_calling_info = check_tool_calling(engine, probe_model)

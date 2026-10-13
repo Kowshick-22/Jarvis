@@ -104,4 +104,4 @@ foreach ($name in @("OpenJarvis", "python", "jarvis", "foundry")) {
 $Out = Join-Path $PSScriptRoot "..\..\docs\getting-started\windows-winui-perf-last.json"
 $Result | ConvertTo-Json -Depth 6 | Set-Content $Out
 $Result | ConvertTo-Json -Depth 6
-Write-Host "Wrote $Out — paste the numbers into windows-winui-acceptance.md"
+Write-Host "Wrote $Out - paste the numbers into windows-winui-acceptance.md"

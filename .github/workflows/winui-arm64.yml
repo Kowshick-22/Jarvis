@@ -2,7 +2,7 @@ name: WinUI ARM64
 
 on:
   push:
-    branches: [main]
+    branches: [main, winUI-native]
     paths:
       - "windows/**"
       - "src/openjarvis/engine/foundry_local.py"
@@ -51,14 +51,26 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
-      - name: Publish WinUI (self-contained win-arm64)
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
+      - name: Publish WinUI + payload + installer
+        shell: pwsh
         run: |
-          dotnet publish windows/OpenJarvis.WinUI/OpenJarvis.WinUI.csproj `
-            -c Release -r win-arm64 --self-contained true `
-            /p:Platform=ARM64 /p:WindowsAppSDKSelfContained=true `
-            -o windows/OpenJarvis.WinUI/bin/publish/win-arm64
+          .\windows\scripts\publish-arm64.ps1 -Configuration Release -Version 1.0.0
       - name: Upload publish output
         uses: actions/upload-artifact@v4
         with:
           name: OpenJarvis-win-arm64
-          path: windows/OpenJarvis.WinUI/bin/publish/win-arm64
+          path: dist/OpenJarvis-win-arm64
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenJarvis-1.0.0-arm64-msi
+          path: dist/OpenJarvis-1.0.0-arm64.msi
+          if-no-files-found: warn
+      - name: Upload Burn bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenJarvis-1.0.0-arm64-bundle
+          path: dist/OpenJarvis-1.0.0-arm64.exe
+          if-no-files-found: warn

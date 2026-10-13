@@ -26,7 +26,9 @@ public sealed class JarvisApiClient
     {
         try
         {
-            using var response = await _http.GetAsync($"{_base}/health", cancellationToken);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linked.CancelAfter(TimeSpan.FromSeconds(5));
+            using var response = await _http.GetAsync($"{_base}/health", linked.Token);
             return response.IsSuccessStatusCode || (int)response.StatusCode == 503;
         }
         catch (HttpRequestException)
@@ -37,13 +39,19 @@ public sealed class JarvisApiClient
         {
             return false;
         }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     public async Task<bool> IsEngineHealthyAsync(CancellationToken cancellationToken)
     {
         try
         {
-            using var response = await _http.GetAsync($"{_base}/health", cancellationToken);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linked.CancelAfter(TimeSpan.FromSeconds(5));
+            using var response = await _http.GetAsync($"{_base}/health", linked.Token);
             return response.IsSuccessStatusCode;
         }
         catch
@@ -132,44 +140,64 @@ public sealed class JarvisApiClient
             Content = JsonContent.Create(request)
         };
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-        using var response = await _http.SendAsync(
-            message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+
+        HttpResponseMessage response;
+        try
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException($"Chat failed ({(int)response.StatusCode}): {body}");
+            response = await _http.SendAsync(
+                message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException(
+                "Could not reach the OpenJarvis backend. Wait until status shows Ready, or open Setup if Foundry is missing.",
+                ex);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException(
+                "The chat request timed out while connecting to the backend.", ex);
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        string? currentEvent = null;
-        while (!reader.EndOfStream)
+        using (response)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
+            if (!response.IsSuccessStatusCode)
             {
-                yield break;
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Chat failed ({(int)response.StatusCode}): {body}");
             }
 
-            if (line.StartsWith("event: ", StringComparison.Ordinal))
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            string? currentEvent = null;
+            while (!reader.EndOfStream)
             {
-                currentEvent = line["event: ".Length..].Trim();
-            }
-            else if (line.StartsWith("data: ", StringComparison.Ordinal))
-            {
-                var data = line["data: ".Length..];
-                if (data == "[DONE]")
+                cancellationToken.ThrowIfCancellationRequested();
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
                 {
                     yield break;
                 }
 
-                yield return new SseEvent { Event = currentEvent, Data = data };
-                currentEvent = null;
-            }
-            else if (string.IsNullOrWhiteSpace(line))
-            {
-                currentEvent = null;
+                if (line.StartsWith("event: ", StringComparison.Ordinal))
+                {
+                    currentEvent = line["event: ".Length..].Trim();
+                }
+                else if (line.StartsWith("data: ", StringComparison.Ordinal))
+                {
+                    var data = line["data: ".Length..];
+                    if (data == "[DONE]")
+                    {
+                        yield break;
+                    }
+
+                    yield return new SseEvent { Event = currentEvent, Data = data };
+                    currentEvent = null;
+                }
+                else if (string.IsNullOrWhiteSpace(line))
+                {
+                    currentEvent = null;
+                }
             }
         }
     }

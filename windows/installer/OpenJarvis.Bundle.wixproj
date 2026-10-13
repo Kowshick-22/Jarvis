@@ -2,14 +2,12 @@
   <PropertyGroup>
     <OutputType>Bundle</OutputType>
     <Platform>ARM64</Platform>
-    <MsiPath Condition="'$(MsiPath)' == ''">bin\$(Configuration)\net6.0-windows\OpenJarvis.Installer.msi</MsiPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <MsiPath Condition="'$(MsiPath)' == ''">bin\$(Configuration)\OpenJarvis.msi</MsiPath>
     <DefineConstants>MsiPath=$(MsiPath)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="WixToolset.Bal.wixext" Version="5.0.2" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Remove="Package.wxs;Files.wxs" />
     <Compile Include="Bundle.wxs" />
   </ItemGroup>
 </Project>

@@ -22,6 +22,7 @@ public sealed class AppServices
         var api = new JarvisApiClient();
         api.SetBaseUrl(settings.Current.ApiUrl);
         var foundry = new FoundryClient();
+        ApplyFoundryPins(foundry);
         var supervisor = new BackendSupervisor(api, foundry, settings);
         return new AppServices
         {
@@ -63,10 +64,41 @@ public sealed class AppServices
             {
                 settings.Current.SelectedAgent = agent.GetString() ?? settings.Current.SelectedAgent;
             }
+
         }
         catch
         {
             // Packaged defaults are optional.
+        }
+    }
+
+    private static void ApplyFoundryPins(FoundryClient foundry)
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            if (root.TryGetProperty("FoundryVersion", out var version) &&
+                version.GetString() is { Length: > 0 } v)
+            {
+                foundry.Version = v;
+            }
+
+            if (root.TryGetProperty("FoundryReleaseTag", out var tag) &&
+                tag.GetString() is { Length: > 0 } t)
+            {
+                foundry.ReleaseTag = t;
+            }
+        }
+        catch
+        {
+            // Optional pins.
         }
     }
 
