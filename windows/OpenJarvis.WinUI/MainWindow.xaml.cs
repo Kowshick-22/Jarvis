@@ -12,6 +12,7 @@ public sealed partial class MainWindow : Window
     private const double DefaultNavPaneWidth = 260;
     private const double MinNavPaneWidth = 200;
     private const double MaxNavPaneWidth = 480;
+    private const double ChatListHeightFraction = 0.4;
     private bool _resizingNavPane;
     private double _resizeStartWidth;
     private double _resizeStartX;
@@ -42,6 +43,7 @@ public sealed partial class MainWindow : Window
 
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        ChatListPane.Height = e.NewSize.Height * ChatListHeightFraction;
         if (_resizingNavPane)
         {
             return;
@@ -228,6 +230,22 @@ public sealed partial class MainWindow : Window
         {
             NavigateTo(tag);
         }
+    }
+
+    private void NavView_PaneOpening(NavigationView sender, object args) =>
+        ChatListPane.Visibility = Visibility.Visible;
+
+    private void NavView_PaneClosing(NavigationView sender, NavigationViewPaneClosingEventArgs args) =>
+        ChatListPane.Visibility = Visibility.Collapsed;
+
+    private void ChatListPane_ConversationOpened(object? sender, EventArgs e)
+    {
+        if (ContentFrame.Content is ChatPage)
+        {
+            return;
+        }
+
+        NavView.SelectedItem = NavView.MenuItems[0];
     }
 
     private void NavigateTo(string tag)

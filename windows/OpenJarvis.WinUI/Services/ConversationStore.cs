@@ -15,6 +15,8 @@ public sealed class ConversationStore
     public ObservableCollection<Conversation> Items { get; } = [];
     public Conversation? Active { get; private set; }
 
+    public event EventHandler? ActiveChanged;
+
     public void Load()
     {
         Items.Clear();
@@ -65,13 +67,20 @@ public sealed class ConversationStore
         Items.Insert(0, conversation);
         Active = conversation;
         Save();
+        ActiveChanged?.Invoke(this, EventArgs.Empty);
         return conversation;
     }
 
     public void Select(Conversation conversation)
     {
+        if (Active == conversation)
+        {
+            return;
+        }
+
         Active = conversation;
         Save();
+        ActiveChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Touch(Conversation conversation)
@@ -111,5 +120,9 @@ public sealed class ConversationStore
         }
 
         Save();
+        if (removingActive)
+        {
+            ActiveChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 }

@@ -16,63 +16,37 @@ public sealed partial class ChatPage : Page
     private readonly ObservableCollection<ChatMessage> _messages = [];
     private readonly ObservableCollection<ToolCallInfo> _tools = [];
     private CancellationTokenSource? _sendCts;
-    private const double DefaultSidebarWidth = 260;
-    private const double MinSidebarWidth = 200;
-    private const double MaxSidebarWidth = 560;
 
     private Conversation? _active;
-    private Conversation? _chatBeforeDelete;
     private bool _suppressModelChange;
-    private bool _suppressListSelection;
-    private bool _resizingSidebar;
-    private double _resizeStartWidth;
-    private double _resizeStartX;
 
     public ChatPage()
     {
         InitializeComponent();
-        App.Services.Conversations.Items.CollectionChanged += OnConversationsChanged;
-        ApplyConversationFilter();
         MessageList.ItemsSource = _messages;
         ToolList.ItemsSource = _tools;
-        ApplySidebar(App.Services.Settings.Current.ChatSidebarCollapsed);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         App.Services.Supervisor.StatusChanged += OnBackendStatusChanged;
+        App.Services.Conversations.ActiveChanged += OnActiveConversationChanged;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         App.Services.Supervisor.StatusChanged -= OnBackendStatusChanged;
-        App.Services.Conversations.Items.CollectionChanged -= OnConversationsChanged;
+        App.Services.Conversations.ActiveChanged -= OnActiveConversationChanged;
     }
 
-    private void OnConversationsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
-        ApplyConversationFilter();
-
-    private void ConversationSearchBox_TextChanged(
-        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) =>
-        ApplyConversationFilter();
-
-    private void ApplyConversationFilter()
+    private void OnActiveConversationChanged(object? sender, EventArgs e)
     {
-        var query = ConversationSearchBox?.Text?.Trim() ?? "";
-        var items = App.Services.Conversations.Items.AsEnumerable();
-        if (query.Length > 0)
+        if (_active is not null && !App.Services.Conversations.Items.Contains(_active))
         {
-            items = items.Where(c => c.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
+            _sendCts?.Cancel();
         }
 
-        _suppressListSelection = true;
-        try
-        {
-            ConversationList.ItemsSource = items.ToList();
-            ConversationList.SelectedItem = _active;
-        }
-        finally
-        {
-            _suppressListSelection = false;
-        }
+        _active = App.Services.Conversations.Active;
+        ReloadMessages();
+        _tools.Clear();
     }
 
     private void ToggleTheme_Click(object sender, RoutedEventArgs e)
@@ -123,7 +97,6 @@ public sealed partial class ChatPage : Page
             _active = App.Services.Conversations.NewConversation(App.Services.Settings.Current.SelectedModel);
         }
 
-        ConversationList.SelectedItem = _active;
         ReloadMessages();
         await RefreshServerAsync();
     }
@@ -291,279 +264,6 @@ public sealed partial class ChatPage : Page
             string id => id,
             _ => null
         };
-    }
-
-    private void ToggleSidebar_Click(object sender, RoutedEventArgs e)
-    {
-        var collapsed = Sidebar.Visibility == Visibility.Visible;
-        ApplySidebar(collapsed);
-        App.Services.Settings.Current.ChatSidebarCollapsed = collapsed;
-        App.Services.Settings.Persist();
-    }
-
-    private void ApplySidebar(bool collapsed)
-    {
-        SidebarColumn.Width = collapsed ? new GridLength(0) : new GridLength(ClampSidebarWidth(SavedSidebarWidth()));
-        SidebarGapColumn.Width = collapsed ? new GridLength(0) : new GridLength(16);
-        Sidebar.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
-        SidebarSplitter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
-        SidebarSplitter.IsTabStop = !collapsed;
-
-        // ToggleSidebarButton now lives inside the Sidebar panel itself (it
-        // collapses along with it, same as React's in-sidebar collapse
-        // button), so it only ever needs to say "Hide" \u2014 ReopenSidebarButton,
-        // in the always-visible content header, is the only way back once
-        // collapsed (matching React's separate floating reopen button).
-        ReopenSidebarButton.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (_resizingSidebar || Sidebar.Visibility != Visibility.Visible)
-        {
-            return;
-        }
-
-        SidebarColumn.Width = new GridLength(ClampSidebarWidth(SavedSidebarWidth()));
-    }
-
-    private void SidebarSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (Sidebar.Visibility != Visibility.Visible)
-        {
-            return;
-        }
-
-        _resizingSidebar = true;
-        _resizeStartWidth = SidebarColumn.ActualWidth;
-        _resizeStartX = e.GetCurrentPoint(RootGrid).Position.X;
-        SidebarSplitter.CapturePointer(e.Pointer);
-        ShowSplitterActive();
-        e.Handled = true;
-    }
-
-    private void SidebarSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_resizingSidebar)
-        {
-            return;
-        }
-
-        var x = e.GetCurrentPoint(RootGrid).Position.X;
-        SidebarColumn.Width = new GridLength(ClampSidebarWidth(_resizeStartWidth + (x - _resizeStartX)));
-        e.Handled = true;
-    }
-
-    private void SidebarSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_resizingSidebar)
-        {
-            return;
-        }
-
-        FinishSidebarResize();
-        SidebarSplitter.ReleasePointerCapture(e.Pointer);
-        e.Handled = true;
-    }
-
-    private void SidebarSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_resizingSidebar)
-        {
-            return;
-        }
-
-        FinishSidebarResize();
-    }
-
-    private void SidebarSplitter_PointerEntered(object sender, PointerRoutedEventArgs e) =>
-        ShowSplitterActive();
-
-    private void SidebarSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_resizingSidebar)
-        {
-            ShowSplitterIdle();
-        }
-    }
-
-    private void SidebarSplitter_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        var delta = e.Key switch
-        {
-            Windows.System.VirtualKey.Left => -16d,
-            Windows.System.VirtualKey.Right => 16d,
-            _ => 0d
-        };
-        if (delta == 0 || Sidebar.Visibility != Visibility.Visible)
-        {
-            return;
-        }
-
-        SidebarColumn.Width = new GridLength(ClampSidebarWidth(SidebarColumn.ActualWidth + delta));
-        PersistSidebarWidth();
-        e.Handled = true;
-    }
-
-    private void FinishSidebarResize()
-    {
-        _resizingSidebar = false;
-        PersistSidebarWidth();
-        ShowSplitterIdle();
-    }
-
-    private void PersistSidebarWidth()
-    {
-        App.Services.Settings.Current.ChatSidebarWidth = SidebarColumn.ActualWidth;
-        App.Services.Settings.Persist();
-    }
-
-    private double SavedSidebarWidth()
-    {
-        var saved = App.Services.Settings.Current.ChatSidebarWidth;
-        return saved >= MinSidebarWidth ? saved : DefaultSidebarWidth;
-    }
-
-    private double ClampSidebarWidth(double width)
-    {
-        var contentWidth = RootGrid.ActualWidth - RootGrid.Padding.Left - RootGrid.Padding.Right;
-        var max = contentWidth - 16 - 320;
-        if (contentWidth <= 0 || max < MinSidebarWidth)
-        {
-            max = MaxSidebarWidth;
-        }
-
-        return Math.Clamp(width, MinSidebarWidth, Math.Min(max, MaxSidebarWidth));
-    }
-
-    private void ShowSplitterActive()
-    {
-        SidebarSplitterBar.Opacity = 1;
-        if (Application.Current.Resources.TryGetValue("AccentFillColorDefaultBrush", out var accent) &&
-            accent is Brush accentBrush)
-        {
-            SidebarSplitterBar.Background = accentBrush;
-        }
-    }
-
-    private void ShowSplitterIdle()
-    {
-        SidebarSplitterBar.Opacity = 0.6;
-        if (Application.Current.Resources.TryGetValue("DividerStrokeColorDefaultBrush", out var divider) &&
-            divider is Brush dividerBrush)
-        {
-            SidebarSplitterBar.Background = dividerBrush;
-        }
-    }
-
-    private void NewChat_Click(object sender, RoutedEventArgs e)
-    {
-        _active = App.Services.Conversations.NewConversation(
-            SelectedModelId() ?? App.Services.Settings.Current.SelectedModel);
-        ConversationList.SelectedItem = _active;
-        ReloadMessages();
-        _tools.Clear();
-    }
-
-    private void ConversationList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressListSelection)
-        {
-            return;
-        }
-
-        if (ConversationList.SelectedItem is Conversation conversation)
-        {
-            App.Services.Conversations.Select(conversation);
-            _active = conversation;
-            ReloadMessages();
-        }
-    }
-
-    private void DeleteChat_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        _chatBeforeDelete = _active;
-    }
-
-    private async void DeleteChat_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: string id })
-        {
-            return;
-        }
-
-        var conversation = App.Services.Conversations.Items.FirstOrDefault(c => c.Id == id);
-        if (conversation is null)
-        {
-            return;
-        }
-
-        var dialog = new ContentDialog
-        {
-            Title = "Delete chat?",
-            Content = $"\"{conversation.Title}\" will be removed from this device.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
-            RequestedTheme = App.Services.Settings.CurrentElementTheme()
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-        {
-            RestoreChatIfDeleteCancelled(id);
-            return;
-        }
-
-        var deletingActive = _active?.Id == conversation.Id;
-        if (deletingActive)
-        {
-            _sendCts?.Cancel();
-        }
-
-        _suppressListSelection = true;
-        try
-        {
-            App.Services.Conversations.Delete(conversation);
-            if (!deletingActive)
-            {
-                return;
-            }
-
-            _active = App.Services.Conversations.Active
-                ?? App.Services.Conversations.NewConversation(
-                    SelectedModelId() ?? App.Services.Settings.Current.SelectedModel);
-            ConversationList.SelectedItem = _active;
-            ReloadMessages();
-            _tools.Clear();
-        }
-        finally
-        {
-            _suppressListSelection = false;
-        }
-    }
-
-    private void RestoreChatIfDeleteCancelled(string deletedId)
-    {
-        if (_chatBeforeDelete is null ||
-            _chatBeforeDelete.Id == deletedId ||
-            _active?.Id != deletedId ||
-            !App.Services.Conversations.Items.Contains(_chatBeforeDelete))
-        {
-            return;
-        }
-
-        _suppressListSelection = true;
-        try
-        {
-            ConversationList.SelectedItem = _chatBeforeDelete;
-            App.Services.Conversations.Select(_chatBeforeDelete);
-            _active = _chatBeforeDelete;
-            ReloadMessages();
-        }
-        finally
-        {
-            _suppressListSelection = false;
-        }
     }
 
     private async void ModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

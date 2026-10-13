@@ -306,8 +306,6 @@ public sealed class AppSettings
     public double Temperature { get; set; } = 0.7;
     public int MaxTokens { get; set; } = 1024;
     public string SelectedModel { get; set; } = "Phi-4-mini-instruct";
-    public bool ChatSidebarCollapsed { get; set; }
-    public double ChatSidebarWidth { get; set; }
     public double NavPaneWidth { get; set; }
     public bool AllowCloud { get; set; }
     public bool LocalSetupConsented { get; set; }

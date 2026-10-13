@@ -73,126 +73,8 @@
             UserTemplate="{StaticResource UserMessageTemplate}"
             AssistantTemplate="{StaticResource AssistantMessageTemplate}" />
     </Page.Resources>
-    <Grid x:Name="RootGrid" Padding="16" SizeChanged="RootGrid_SizeChanged">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="SidebarColumn" Width="260" />
-            <ColumnDefinition x:Name="SidebarGapColumn" Width="16" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
-
-        <Grid x:Name="Sidebar" Grid.Column="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-
-            <Grid Margin="0,0,0,8" ColumnSpacing="4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Button
-                    x:Name="ToggleSidebarButton"
-                    Grid.Column="0"
-                    Click="ToggleSidebar_Click"
-                    Style="{StaticResource FlatIconButtonStyle}"
-                    ToolTipService.ToolTip="Hide chats"
-                    AutomationProperties.Name="Hide conversation list">
-                    <FontIcon Glyph="&#xE126;" FontSize="14" />
-                </Button>
-                <TextBlock
-                    Grid.Column="1"
-                    Text="Chats"
-                    Style="{StaticResource SubtitleTextBlockStyle}"
-                    VerticalAlignment="Center"
-                    Margin="4,0,0,0" />
-            </Grid>
-
-            <Button
-                x:Name="NewChatButton"
-                Grid.Row="1"
-                Content="New chat"
-                HorizontalAlignment="Stretch"
-                MinHeight="40"
-                Click="NewChat_Click"
-                AccessKey="N"
-                AutomationProperties.Name="Start a new chat"
-                Margin="0,0,0,8" />
-
-            <AutoSuggestBox
-                x:Name="ConversationSearchBox"
-                Grid.Row="2"
-                PlaceholderText="Search chats"
-                QueryIcon="Find"
-                TextChanged="ConversationSearchBox_TextChanged"
-                Margin="0,0,0,8"
-                AutomationProperties.Name="Search chats" />
-
-            <ListView
-                x:Name="ConversationList"
-                Grid.Row="3"
-                SelectionChanged="ConversationList_SelectionChanged"
-                AutomationProperties.Name="Conversation history">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="models:Conversation">
-                        <Grid Padding="4,4,0,4" ColumnSpacing="4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock
-                                    Text="{x:Bind Model}"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <Button
-                                Grid.Column="1"
-                                MinWidth="36"
-                                MinHeight="36"
-                                Padding="8"
-                                VerticalAlignment="Center"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                PointerPressed="DeleteChat_PointerPressed"
-                                Click="DeleteChat_Click"
-                                Tag="{x:Bind Id}"
-                                ToolTipService.ToolTip="Delete chat"
-                                AutomationProperties.Name="Delete chat">
-                                <FontIcon Glyph="&#xE74D;" FontSize="14" />
-                            </Button>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Grid>
-
-        <views:SidebarResizeGrip
-            x:Name="SidebarSplitter"
-            Grid.Column="1"
-            Background="Transparent"
-            IsTabStop="True"
-            PointerPressed="SidebarSplitter_PointerPressed"
-            PointerMoved="SidebarSplitter_PointerMoved"
-            PointerReleased="SidebarSplitter_PointerReleased"
-            PointerCaptureLost="SidebarSplitter_PointerCaptureLost"
-            PointerEntered="SidebarSplitter_PointerEntered"
-            PointerExited="SidebarSplitter_PointerExited"
-            KeyDown="SidebarSplitter_KeyDown"
-            ToolTipService.ToolTip="Drag to resize"
-            AutomationProperties.Name="Resize conversation list">
-            <Border
-                x:Name="SidebarSplitterBar"
-                Width="2"
-                HorizontalAlignment="Center"
-                Opacity="0.6"
-                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-        </views:SidebarResizeGrip>
-
-        <Grid Grid.Column="2">
+    <Grid x:Name="RootGrid" Padding="16">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -203,22 +85,9 @@
             <Grid Margin="0,0,0,12" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Button
-                    x:Name="ReopenSidebarButton"
-                    VerticalAlignment="Bottom"
-                    MinWidth="40"
-                    MinHeight="40"
-                    Visibility="Collapsed"
-                    Click="ToggleSidebar_Click"
-                    ToolTipService.ToolTip="Show chats"
-                    AutomationProperties.Name="Show conversation list">
-                    <FontIcon Glyph="&#xE127;" FontSize="16" />
-                </Button>
-                <Button
-                    Grid.Column="1"
                     VerticalAlignment="Bottom"
                     MinWidth="40"
                     MinHeight="40"
@@ -227,7 +96,7 @@
                     AutomationProperties.Name="Toggle theme">
                     <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE793;" FontSize="16" />
                 </Button>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
                     <ComboBox
                         x:Name="ModelBox"
                         Header="Model"

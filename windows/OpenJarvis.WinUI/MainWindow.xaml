@@ -14,6 +14,8 @@
                 OpenPaneLength="260"
                 CompactPaneLength="48"
                 SelectionChanged="NavView_SelectionChanged"
+                PaneOpening="NavView_PaneOpening"
+                PaneClosing="NavView_PaneClosing"
                 AutomationProperties.Name="OpenJarvis navigation">
                 <NavigationView.PaneHeader>
                     <TextBlock
@@ -21,6 +23,9 @@
                         Text="OpenJarvis"
                         Style="{StaticResource SubtitleTextBlockStyle}" />
                 </NavigationView.PaneHeader>
+                <NavigationView.PaneCustomContent>
+                    <views:ChatListPane x:Name="ChatListPane" ConversationOpened="ChatListPane_ConversationOpened" />
+                </NavigationView.PaneCustomContent>
                 <NavigationView.MenuItems>
                     <NavigationViewItem Content="Chat" Tag="chat" AccessKey="C" AutomationProperties.Name="Chat">
                         <NavigationViewItem.Icon>
