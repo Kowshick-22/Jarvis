@@ -124,6 +124,54 @@ public sealed partial class ChatPage : Page
         {
             _messages.Add(message);
         }
+
+        ScrollToLatest();
+    }
+
+    /// <summary>Deferred so the list has realized containers: messages are
+    /// variable-height Markdown, so jumping straight to the estimated
+    /// <c>ScrollableHeight</c> before the last item is measured undershoots.</summary>
+    private void ScrollToLatest()
+    {
+        if (_messages.Count == 0)
+        {
+            return;
+        }
+
+        var last = _messages[^1];
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (_messages.Count == 0 || !ReferenceEquals(_messages[^1], last))
+            {
+                return;
+            }
+
+            MessageList.ScrollIntoView(last, ScrollIntoViewAlignment.Leading);
+            MessageList.UpdateLayout();
+            if (FindDescendant<ScrollViewer>(MessageList) is { } viewer)
+            {
+                viewer.ChangeView(null, viewer.ScrollableHeight, null, disableAnimation: true);
+            }
+        });
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            if (FindDescendant<T>(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private async Task RefreshServerAsync()
