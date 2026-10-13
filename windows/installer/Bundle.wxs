@@ -4,6 +4,7 @@
       Version="1.0.0"
       Manufacturer="OpenJarvis"
       UpgradeCode="c4d5e6f7-8901-4a2b-bcde-f12345678901"
+      IconSourceFile="..\OpenJarvis.WinUI\obj\OpenJarvis.ico"
       Compressed="yes">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication

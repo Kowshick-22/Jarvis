@@ -196,6 +196,12 @@ public sealed partial class MainWindow : Window
             IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenJarvis.ico");
+            if (File.Exists(iconPath))
+            {
+                appWindow.SetIcon(iconPath);
+            }
+
             appWindow.Resize(new Windows.Graphics.SizeInt32(1920, 1200));
         }
         catch

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" InitialTargets="GenerateOpenJarvisIcon">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
@@ -18,6 +18,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <AssemblyName>OpenJarvis</AssemblyName>
+    <OpenJarvisLogo>$(MSBuildThisFileDirectory)..\..\assets\OpenJarvis_Circular_Logo.png</OpenJarvisLogo>
+    <OpenJarvisIcon>$(MSBuildThisFileDirectory)obj\OpenJarvis.ico</OpenJarvisIcon>
+    <ApplicationIcon>$(OpenJarvisIcon)</ApplicationIcon>
     <Product>OpenJarvis</Product>
     <Company>OpenJarvis</Company>
     <Version>1.0.0</Version>
@@ -39,4 +42,27 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="GenerateOpenJarvisIcon"
+          BeforeTargets="CoreCompile;CreateAppHost"
+          Inputs="$(OpenJarvisLogo)"
+          Outputs="$(OpenJarvisIcon)">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\make-app-icon.ps1&quot; -Png &quot;$(OpenJarvisLogo)&quot; -Ico &quot;$(OpenJarvisIcon)&quot;" />
+  </Target>
+
+  <Target Name="CopyOpenJarvisIcon" AfterTargets="Build">
+    <MakeDir Directories="$(TargetDir)Assets" />
+    <Copy SourceFiles="$(OpenJarvisIcon)"
+          DestinationFiles="$(TargetDir)Assets\OpenJarvis.ico"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishOpenJarvisIcon" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="GenerateOpenJarvisIcon">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OpenJarvisIcon)">
+        <RelativePath>Assets\OpenJarvis.ico</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

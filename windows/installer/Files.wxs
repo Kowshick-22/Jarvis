@@ -8,6 +8,7 @@
             Directory="AppStartMenu"
             Name="OpenJarvis"
             Target="[InstallFolder]OpenJarvis.exe"
+            Icon="OpenJarvis.ico"
             WorkingDirectory="InstallFolder" />
         <RegistryValue
             Root="HKCU"
