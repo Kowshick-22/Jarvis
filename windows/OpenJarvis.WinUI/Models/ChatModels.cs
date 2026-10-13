@@ -135,6 +135,7 @@ public sealed class TokenUsage
 public sealed class ChatMessage : INotifyPropertyChanged
 {
     private string _content = "";
+    private bool _isPending;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -156,6 +157,24 @@ public sealed class ChatMessage : INotifyPropertyChanged
             }
 
             _content = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>True from send until the first content token (or the
+    /// stream ending) — drives the "Thinking…" indicator.</summary>
+    [JsonIgnore]
+    public bool IsPending
+    {
+        get => _isPending;
+        set
+        {
+            if (_isPending == value)
+            {
+                return;
+            }
+
+            _isPending = value;
             OnPropertyChanged();
         }
     }

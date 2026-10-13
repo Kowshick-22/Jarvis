@@ -375,7 +375,7 @@ public sealed partial class ChatPage : Page
         var text = PromptBox.Text.Trim();
         PromptBox.Text = "";
         var user = new ChatMessage { Role = "user", Content = text };
-        var assistant = new ChatMessage { Role = "assistant", Content = "" };
+        var assistant = new ChatMessage { Role = "assistant", Content = "", IsPending = true };
         active.Messages.Add(user);
         active.Messages.Add(assistant);
         if (active.Title == "New chat")
@@ -385,6 +385,7 @@ public sealed partial class ChatPage : Page
 
         _messages.Add(user);
         _messages.Add(assistant);
+        MessageList.ScrollIntoView(assistant);
         _tools.Clear();
         App.Services.Conversations.Touch(active);
 
@@ -427,6 +428,7 @@ public sealed partial class ChatPage : Page
         }
         finally
         {
+            assistant.IsPending = false;
             _sending = false;
             SyncSendButton();
             CancelButton.IsEnabled = false;
@@ -514,6 +516,7 @@ public sealed partial class ChatPage : Page
                 if (delta.TryGetProperty("content", out var content))
                 {
                     assistant.Content += content.GetString();
+                    assistant.IsPending = assistant.Content.Length == 0;
                     var index = _messages.IndexOf(assistant);
                     if (index >= 0)
                     {

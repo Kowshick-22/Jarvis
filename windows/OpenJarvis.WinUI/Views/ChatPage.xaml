@@ -40,6 +40,19 @@
         <DataTemplate x:Key="AssistantMessageTemplate" x:DataType="models:ChatMessage">
             <Grid Margin="0,0,0,16" PointerEntered="MessageRow_PointerEntered" PointerExited="MessageRow_PointerExited">
                 <StackPanel Spacing="4">
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="{x:Bind IsPending, Mode=OneWay}"
+                        AutomationProperties.Name="Model is thinking"
+                        AutomationProperties.LiveSetting="Polite">
+                        <ProgressRing Width="16" Height="16" IsActive="{x:Bind IsPending, Mode=OneWay}" />
+                        <TextBlock
+                            Text="Thinking…"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.7"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
                     <ctk:MarkdownTextBlock
                         Text="{x:Bind Content, Mode=OneWay}"
                         Background="Transparent"
@@ -195,7 +208,6 @@
                 </Grid.ColumnDefinitions>
                 <TextBox
                     x:Name="PromptBox"
-                    Header="Message"
                     PlaceholderText="Ask OpenJarvis"
                     AcceptsReturn="True"
                     TextWrapping="Wrap"
