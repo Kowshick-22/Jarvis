@@ -15,7 +15,7 @@ import { useAppStore } from './lib/store';
 import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
 import { OptInModal } from './components/OptInModal';
 import { UpdateChecker } from './components/Desktop/UpdateChecker';
-import { track, hashId } from './lib/analytics';
+import { track, hashId, fetchAnalyticsIdentity } from './lib/analytics';
 
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
@@ -115,14 +115,28 @@ export default function App() {
     refresh();
     const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
-  }, [optInEnabled, optInDisplayName, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [optInEnabled, optInDisplayName, optInEmail, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show opt-in modal on first visit
   useEffect(() => {
+    const analyticsSeenKey = 'openjarvis-analytics-choice-seen';
     if (!optInModalSeen) {
       setOptInModalOpen(true);
       markOptInModalSeen();
+      localStorage.setItem(analyticsSeenKey, 'true');
+      return;
     }
+    // Existing users may have seen the older leaderboard-only dialog.
+    // Offer the new analytics choice once, in that same dialog.
+    let active = true;
+    if (!localStorage.getItem(analyticsSeenKey)) {
+      fetchAnalyticsIdentity().then((identity) => {
+        if (!active) return;
+        if (!identity.choice_recorded) setOptInModalOpen(true);
+        localStorage.setItem(analyticsSeenKey, 'true');
+      }).catch(() => { /* retry on the next launch if the server was unavailable */ });
+    }
+    return () => { active = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fire model_changed when the user switches models. First mount is

@@ -1216,11 +1216,13 @@ class AnalyticsConfig:
     usage events sent to the OpenJarvis team's PostHog instance to
     measure setup success, retention, feature usage, and churn.
 
-    No chat content, prompts, model outputs, file paths, emails, IPs,
-    or hardware identifiers are ever sent. See ``docs/telemetry.md``.
+    Backend properties are limited to declared usage metadata; external
+    SDKs may add environment metadata. See ``docs/telemetry.md`` for the
+    safeguards, destination, and sharing controls.
     """
 
-    enabled: bool = True
+    enabled: bool = False
+    choice_recorded: bool = False
     host: str = "https://34.231.106.201.sslip.io"
     key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
     anon_id_path: str = field(default_factory=lambda: str(get_config_dir() / "anon_id"))

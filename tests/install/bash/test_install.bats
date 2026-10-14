@@ -16,6 +16,7 @@ setup() {
     export OLLAMA_STUB_LOG="$TEST_TMPDIR/ollama.log"
     export UV_STUB_LOG="$TEST_TMPDIR/uv.log"
     export CURL_STUB_LOG="$TEST_TMPDIR/curl.log"
+    export JARVIS_STUB_LOG="$TEST_TMPDIR/jarvis.log"
     : > "$GIT_STUB_LOG"
     : > "$OLLAMA_STUB_LOG"
     : > "$UV_STUB_LOG"
@@ -46,6 +47,7 @@ case "\$1" in
             cat > "\$venv_path/bin/jarvis" <<'EOJ'
 #!/usr/bin/env bash
 # fake jarvis for tests
+echo "\$@" >> "\$JARVIS_STUB_LOG"
 echo "fake jarvis: \$@"
 exit 0
 EOJ
@@ -74,6 +76,71 @@ EOF
 
 teardown() {
     [[ -n "${TEST_TMPDIR:-}" ]] && rm -rf "$TEST_TMPDIR"
+}
+
+@test "unattended install sends no analytics and persists disabled" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    grep -q 'config set analytics.enabled false' "$JARVIS_STUB_LOG"
+}
+
+@test "explicit analytics flag sends beacons and persists enabled" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ -s "$OPENJARVIS_HOME/anon_id" ]
+    grep -q 'config set analytics.enabled true' "$JARVIS_STUB_LOG"
+}
+
+@test "Enter at dedicated terminal prompt consents before the first beacon" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["\n"]'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Press Enter or Y to consent, or N to decline"* ]]
+    grep -q '"event":"install_started"' "$CURL_STUB_LOG"
+    grep -q 'config set analytics.enabled true' "$JARVIS_STUB_LOG"
+}
+
+@test "N at terminal prompt declines every installer beacon" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["N\n"]'
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    grep -q 'config set analytics.enabled false' "$JARVIS_STUB_LOG"
+}
+
+@test "invalid answer retries without silently consenting" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["invalid\n", "n\n"]'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Please press Enter, type Y, or type N."* ]]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+}
+
+@test "terminal EOF is different from pressing Enter" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["\u0004"]'
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    grep -q 'config set analytics.enabled false' "$JARVIS_STUB_LOG"
+}
+
+@test "declining on a rerun persists despite skipped config creation" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    : > "$JARVIS_STUB_LOG"
+    : > "$CURL_STUB_LOG"
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --no-analytics
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    ! grep -q '_bootstrap' "$JARVIS_STUB_LOG"
+    grep -q 'config set analytics.enabled false' "$JARVIS_STUB_LOG"
+}
+
+@test "contradictory analytics flags are rejected" {
+    run bash "$SCRIPT" --analytics --no-analytics
+    [ "$status" -eq 2 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
 }
 
 @test "refuses to run as root" {
