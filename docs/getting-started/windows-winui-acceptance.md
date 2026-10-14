@@ -5,7 +5,7 @@ description: Feature checklist, performance results, and how to measure them
 
 # WinUI ARM64 acceptance
 
-The target device is Surface Laptop Ultra (NVIDIA RTX Spark N1X, Windows 11 26H1, ARM64). The results below come from a stand-in machine without a GPU or NPU (see [test environment](#test-environment)). Anything that needs GPU or NPU evidence is listed as pending on the Surface.
+The target device is Surface Laptop Ultra (NVIDIA RTX Spark N1X, Windows 11 26H1, ARM64). The results below come from a stand-in machine without a GPU or NPU (see [test environment](#test-environment)). Anything that needs GPU or NPU evidence is listed as pending on the Surface. To install a build and rerun these checks, see [Testing the WinUI app](windows-winui-testing.md).
 
 ## Status key
 
@@ -48,10 +48,16 @@ GPU and NPU results (`NvTensorRTRTXExecutionProvider`, `CUDAExecutionProvider`, 
 With OpenJarvis running and the API healthy:
 
 ```powershell
-.\windows\scripts\measure-performance.ps1 -Model "Phi-4-mini-instruct-generic-cpu:5"
+.\windows\scripts\measure-performance.ps1
 ```
 
-The script writes `docs/getting-started/windows-winui-perf-last.json` (git-ignored). It records time to first token, execution provider and working sets. It can't compute tokens per second, because the stream carries no usage counts; measure decode speed from the SSE deltas instead. Its "cold start" figure is only the wait for `/health` on an already running server, so time first launch and relaunch from app start.
+The script uses the model the backend reports (override with `-Model`) and writes `docs/getting-started/windows-winui-perf-last.json` (git-ignored). It records:
+- time to first token;
+- tokens per second, estimated from SSE content deltas, because Foundry streams carry no usage counts;
+- execution provider;
+- working sets.
+
+Its "cold start" figure is only the wait for `/health` on an already running server. Time first launch and relaunch from app start instead. [Testing the WinUI app](windows-winui-testing.md) has the full procedure.
 
 ## Feature checklist
 

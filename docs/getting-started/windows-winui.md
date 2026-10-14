@@ -126,4 +126,5 @@ Settings probes `Microsoft.Windows.AI.Generative.LanguageModel` and WinML types 
 
 - [Version pins](windows-winui-versions.md)
 - [Acceptance checklist](windows-winui-acceptance.md)
+- [Testing](windows-winui-testing.md): install a build and reproduce the acceptance checks
 - [Known issues](windows-winui-known-issues.md)
