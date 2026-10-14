@@ -17,8 +17,36 @@ from openjarvis.engine.foundry_local import (
     check_tool_calling,
     classify_execution_provider,
     discover_foundry_host,
+    parse_text_tool_calls,
     probe_execution_provider,
 )
+
+_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "time_range": {"type": "object"},
+                "sources": {"type": "array"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def _chat_response(content: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "usage": {},
+        },
+    )
 
 
 @pytest.fixture()
@@ -201,7 +229,120 @@ class TestFoundryGenerate:
                 )
 
 
+class TestTextToolCalls:
+    """Models whose tool-call markup Foundry doesn't parse return it as text;
+    the engine recovers it so agents see a structured call."""
+
+    def test_qwen_xml_format(self) -> None:
+        content = (
+            "<function=search>\n<parameter=query>\nProject Heron paused\n</parameter>\n"
+            "<parameter=limit>\n20\n</parameter>\n</function>"
+        )
+        calls, remaining = parse_text_tool_calls(content, [_SEARCH_TOOL])
+        assert len(calls) == 1
+        assert calls[0]["name"] == "search"
+        assert json.loads(calls[0]["arguments"]) == {
+            "query": "Project Heron paused",
+            "limit": 20,
+        }
+        assert remaining == ""
+
+    def test_qwen_xml_inside_tool_call_wrapper(self) -> None:
+        content = (
+            "Let me search.\n<tool_call>\n<function=search>"
+            "<parameter=query>Heron</parameter></function>\n</tool_call>"
+        )
+        calls, remaining = parse_text_tool_calls(content, [_SEARCH_TOOL])
+        assert json.loads(calls[0]["arguments"]) == {"query": "Heron"}
+        assert remaining == "Let me search."
+
+    def test_hermes_json_format(self) -> None:
+        content = (
+            '<tool_call>{"name": "search", "arguments": '
+            '{"query": "Heron", "sources": ["obsidian"]}}</tool_call>'
+        )
+        calls, _ = parse_text_tool_calls(content, [_SEARCH_TOOL])
+        assert json.loads(calls[0]["arguments"]) == {
+            "query": "Heron",
+            "sources": ["obsidian"],
+        }
+
+    def test_python_call_format(self) -> None:
+        content = (
+            'search("Project Heron pause reason", '
+            'time_range={"start": "2026-10-14", "end": "2026-10-14"}, '
+            "sources=None, limit=1)"
+        )
+        calls, remaining = parse_text_tool_calls(content, [_SEARCH_TOOL])
+        assert json.loads(calls[0]["arguments"]) == {
+            "query": "Project Heron pause reason",
+            "time_range": {"start": "2026-10-14", "end": "2026-10-14"},
+            "limit": 1,
+        }
+        assert remaining == ""
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Project Heron is paused because the vendor missed deadlines.",
+            "I will call search('Heron') to find out.",
+            "search",
+            'lookup("Heron")',
+            "<function=lookup><parameter=q>x</parameter></function>",
+            "",
+        ],
+    )
+    def test_prose_and_unknown_tools_are_left_alone(self, content: str) -> None:
+        calls, remaining = parse_text_tool_calls(content, [_SEARCH_TOOL])
+        assert calls == []
+        assert remaining == content
+
+    def test_no_tools_offered_means_no_parsing(self) -> None:
+        calls, _ = parse_text_tool_calls('search("Heron")', [])
+        assert calls == []
+
+    def test_generate_returns_recovered_calls(self, engine: FoundryLocalEngine) -> None:
+        with respx.mock:
+            respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=_chat_response(
+                    "<function=search><parameter=query>Heron</parameter></function>"
+                )
+            )
+            result = engine.generate(
+                [Message(role=Role.USER, content="Why is Heron paused?")],
+                model="qwen3.5-4b-generic-cpu:3",
+                tools=[_SEARCH_TOOL],
+            )
+        assert result["tool_calls"][0]["name"] == "search"
+        assert json.loads(result["tool_calls"][0]["arguments"]) == {"query": "Heron"}
+        assert result["content"] == ""
+        assert result["finish_reason"] == "tool_calls"
+
+    def test_generate_keeps_plain_answers(self, engine: FoundryLocalEngine) -> None:
+        with respx.mock:
+            respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=_chat_response("Heron restarts after Falcon launches.")
+            )
+            result = engine.generate(
+                [Message(role=Role.USER, content="Why is Heron paused?")],
+                model="Phi-4-mini-instruct-generic-cpu:5",
+                tools=[_SEARCH_TOOL],
+            )
+        assert "tool_calls" not in result
+        assert result["content"] == "Heron restarts after Falcon launches."
+
+
 class TestToolCallingProbe:
+    def test_supported_when_tool_call_is_written_as_text(
+        self, engine: FoundryLocalEngine
+    ) -> None:
+        with respx.mock:
+            respx.post("http://testhost:5273/v1/chat/completions").mock(
+                return_value=_chat_response("<function=ping></function>")
+            )
+            result = check_tool_calling(engine, "qwen3.5-4b-generic-cpu:3")
+        assert result["supported"] is True
+
     def test_supported_when_tool_calls_returned(
         self, engine: FoundryLocalEngine
     ) -> None:

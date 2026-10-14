@@ -9,6 +9,7 @@ registry — it is not a side demo.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -289,6 +290,11 @@ def check_tool_calling(
     tool_calls = message.get("tool_calls") or []
     if tool_calls:
         return {"supported": True, "reason": ""}
+    # The engine also recovers calls the model wrote as text (see
+    # parse_text_tool_calls), so those count as tool support too.
+    text_calls, _ = parse_text_tool_calls(message.get("content") or "", _TRIVIAL_TOOL)
+    if text_calls:
+        return {"supported": True, "reason": ""}
     if choice.get("finish_reason") == "length":
         return {
             "supported": False,
@@ -306,6 +312,150 @@ def check_tool_calling(
             "Agent runs that need tools will fail rather than hang."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Text-form tool calls
+# ---------------------------------------------------------------------------
+#
+# Foundry Local only returns structured ``tool_calls`` when it recognizes the
+# model's tool-call markup. Ollama parses each model's native format server
+# side; Foundry 0.11 does not for every model, so the call arrives as plain
+# ``content`` and agents treat it as the final answer. Formats seen live:
+#
+#   Qwen3.5:      <function=search><parameter=query>…</parameter></function>
+#   Hermes/Qwen:  <tool_call>{"name": "search", "arguments": {...}}</tool_call>
+#   Phi-4-mini:   search("Project Heron", time_range=None, limit=1)
+
+_XML_FUNCTION_RE = re.compile(r"<function=([\w.-]+)>(.*?)</function>", re.DOTALL)
+_XML_PARAMETER_RE = re.compile(r"<parameter=([\w.-]+)>(.*?)</parameter>", re.DOTALL)
+_HERMES_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+_JSON_LITERALS = {"true": True, "false": False, "null": None}
+
+
+def _tool_schemas(tools: Sequence[Any]) -> Dict[str, Dict[str, Any]]:
+    """Map tool name -> JSON-schema ``properties`` (in declaration order)."""
+    schemas: Dict[str, Dict[str, Any]] = {}
+    for tool in tools or []:
+        fn = tool.get("function", tool) if isinstance(tool, dict) else {}
+        name = fn.get("name")
+        if name:
+            schemas[name] = (fn.get("parameters") or {}).get("properties") or {}
+    return schemas
+
+
+def _coerce_param(raw: str, schema: Dict[str, Any]) -> Any:
+    """Convert an XML parameter's text to the type its schema declares."""
+    value = raw.strip()
+    kind = schema.get("type")
+    try:
+        if kind == "integer":
+            return int(value)
+        if kind == "number":
+            return float(value)
+        if kind == "boolean":
+            return value.lower() == "true"
+        if kind in ("object", "array"):
+            return json.loads(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _literal(node: ast.AST) -> Any:
+    """``ast.literal_eval`` that also accepts JSON ``true``/``false``/``null``."""
+    if isinstance(node, ast.Name) and node.id in _JSON_LITERALS:
+        return _JSON_LITERALS[node.id]
+    if isinstance(node, ast.Dict):
+        return {_literal(k): _literal(v) for k, v in zip(node.keys, node.values)}
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [_literal(e) for e in node.elts]
+    return ast.literal_eval(node)
+
+
+def _parse_python_calls(
+    content: str, schemas: Dict[str, Dict[str, Any]]
+) -> list[tuple[str, Dict[str, Any]]]:
+    """Parse content that is *only* calls like ``search("q", limit=5)``."""
+    try:
+        tree = ast.parse(content.strip(), mode="exec")
+    except SyntaxError:
+        return []
+    calls: list[tuple[str, Dict[str, Any]]] = []
+    for stmt in tree.body:
+        call = stmt.value if isinstance(stmt, ast.Expr) else None
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id in schemas
+        ):
+            return []  # anything else means this is prose or code, not calls
+        params = list(schemas[call.func.id])
+        if len(call.args) > len(params):
+            return []
+        try:
+            args = {params[i]: _literal(a) for i, a in enumerate(call.args)}
+            args.update({kw.arg: _literal(kw.value) for kw in call.keywords if kw.arg})
+        except (ValueError, TypeError, SyntaxError):
+            return []
+        calls.append((call.func.id, {k: v for k, v in args.items() if v is not None}))
+    return calls
+
+
+def parse_text_tool_calls(
+    content: str, tools: Sequence[Any]
+) -> tuple[list[Dict[str, Any]], str]:
+    """Recover tool calls a model wrote as text instead of structured calls.
+
+    Only calls to tools that were offered are accepted. Returns the calls in
+    the engine's ``tool_calls`` shape and the content with the calls removed.
+    """
+    schemas = _tool_schemas(tools)
+    if not content or not schemas:
+        return [], content
+    found: list[tuple[str, Dict[str, Any]]] = []
+    remaining = content
+
+    for match in _XML_FUNCTION_RE.finditer(content):
+        name = match.group(1)
+        if name not in schemas:
+            continue
+        args = {
+            key: _coerce_param(value, schemas[name].get(key, {}))
+            for key, value in _XML_PARAMETER_RE.findall(match.group(2))
+        }
+        found.append((name, args))
+        remaining = remaining.replace(match.group(0), "")
+
+    for match in _HERMES_RE.finditer(content):
+        try:
+            payload = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        name = payload.get("name")
+        args = payload.get("arguments", {})
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                continue
+        if name in schemas and isinstance(args, dict):
+            found.append((name, args))
+            remaining = remaining.replace(match.group(0), "")
+
+    if found:
+        # Drop the now-empty <tool_call> wrappers around XML-style calls.
+        remaining = re.sub(r"</?tool_call>", "", remaining)
+    else:
+        found = _parse_python_calls(content, schemas)
+        if found:
+            remaining = ""
+
+    calls = [
+        {"id": f"call_text_{i}", "name": name, "arguments": json.dumps(args)}
+        for i, (name, args) in enumerate(found)
+    ]
+    return calls, remaining.strip() if calls else content
 
 
 @EngineRegistry.register("foundry_local")
@@ -413,6 +563,18 @@ class FoundryLocalEngine(_OpenAICompatibleEngine):
                 }
                 for tc in raw_tool_calls
             ]
+        else:
+            text_calls, remaining = parse_text_tool_calls(
+                result["content"], kwargs.get("tools") or []
+            )
+            if text_calls:
+                logger.debug(
+                    "foundry_local: recovered %d text-form tool call(s)",
+                    len(text_calls),
+                )
+                result["tool_calls"] = text_calls
+                result["content"] = remaining
+                result["finish_reason"] = "tool_calls"
         return result
 
 
@@ -423,5 +585,6 @@ __all__ = [
     "classify_execution_provider",
     "discover_foundry_host",
     "infer_cpu_fallback_from_model",
+    "parse_text_tool_calls",
     "probe_execution_provider",
 ]
