@@ -78,6 +78,7 @@ These have no script. Follow the [demo walkthrough](windows-winui.md#demo-walkth
 - Dashboard, Data Sources, Agents, Approvals, Logs, Settings and the Ctrl+K palette
 - Narrator (Ctrl+Win+Enter), display scaling at 100%, 150% and 200%, and touch
 - Offline chat: turn off networking after setup, restart the app, and chat
+- Deep Research: in **Data Sources → Connectors**, connect a folder of Markdown notes with **Obsidian / Markdown**, then turn on **Deep Research** in Chat and ask a question the notes answer. The research timeline should show at least one search with hits from your notes, and the answer should use their contents. Deep Research searches connected data only, not the web.
 - Uninstall: the app is removed, and the profile and `%LOCALAPPDATA%\OpenJarvis` remain
 
 ## 6. Python tests (optional)

@@ -87,7 +87,7 @@ Its "cold start" figure is only the wait for `/health` on an already running ser
 | Model picker restarts the backend with the new model | Pass | Source build | `RestartWithModelAsync` loads the model in Foundry and restarts `jarvis serve`. |
 | Chat agent selection (`simple` / `orchestrator` / `react`) | Not implemented | Code | Chat always runs `jarvis serve --agent simple`, as the Tauri desktop does. Tool-using and managed agents are created from the Agents page. |
 | Tool activity cards (`tool_call_start` / `tool_call_end`) | Pass | Source build | A real `native_react` calculator call over the streaming path renders tool cards. |
-| Deep Research mode | Pass | Source build | `/api/research` drives a research timeline (searches, synthesis, completion) in Chat. |
+| Deep Research mode | Pass | Source build | `/api/research` drives a research timeline (searches, synthesis, completion) in Chat. With a connected notes folder, both `Phi-4-mini-instruct-generic-cpu:5` and `qwen3.5-4b-generic-cpu:3` search the notes and answer from them; both models write their tool calls as text, which the Foundry engine converts (see [known issues](windows-winui-known-issues.md)). Checked through the API, not through the Chat page. |
 | Memory store and search | Pass | Installed build | `/v1/memory/store` and `/v1/memory/search` work through the bundled `openjarvis_rust` extension. |
 | Status shows engine, model, execution provider | Pass | Installed build | `/v1/info` reports ARM64, the resolved model, `CPUExecutionProvider` and CPU fallback; Chat shows the active model. |
 | Backend crash: UI stays responsive and recovers | Pass | Installed build | Killing `jarvis.exe` restarts the backend under a new process in about 13 s; the window stays responsive. |
