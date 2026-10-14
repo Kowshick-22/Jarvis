@@ -8,11 +8,11 @@ using OpenJarvis.WinUI.Models;
 namespace OpenJarvis.WinUI.Services;
 
 /// <summary>
-/// Talks to the Foundry Local CLI. Current preview builds use
-/// <c>foundry server …</c> and <c>foundry model load</c>; older builds used
-/// <c>service</c> / <c>model run</c>. We try the new verbs first, then fall back.
-/// When Foundry is missing, Setup downloads the ARM64 MSIX and installs it via
-/// <c>Add-AppxPackage</c> (no terminal required).
+/// Drives the Foundry Local CLI: starts the server and discovers its endpoint
+/// (<c>foundry server …</c>, or <c>foundry service …</c> if the installed CLI
+/// lacks <c>server</c>), and downloads and loads models with <c>foundry model …</c>.
+/// If Foundry is missing, it downloads the ARM64 MSIX and installs it via
+/// <c>Add-AppxPackage</c>.
 /// </summary>
 public sealed class FoundryClient
 {
@@ -389,7 +389,7 @@ public sealed class FoundryClient
         var arg = QuoteModel(model);
         await RunFirstSuccessAsync(
             foundry,
-            new[] { $"model load {arg}", $"model run {arg} --skip-chat" },
+            new[] { $"model load {arg}" },
             cancellationToken,
             $"Could not load model {model}. On VMs without a GPU, use a *-generic-cpu catalog id.",
             progress);
