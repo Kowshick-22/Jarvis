@@ -23,19 +23,19 @@ End users install from the ARM64 bundle. They do not need a terminal, Visual Stu
 - Local inference by default; cloud engines stay off until Settings opts in
 - Offline chat after the first model and execution-provider download
 
-The native pages do not yet cover every React-client feature. See [known issues](windows-winui-known-issues.md) for the remaining gaps, feature limits, and verification status. The local API remains available at `http://127.0.0.1:8000`.
+The native pages don't cover every React-client feature. See [known issues](windows-winui-known-issues.md) for the remaining gaps, feature limits, and verification status. The local API remains available at `http://127.0.0.1:8000`.
 
 ## End-user install
 
 1. Run `OpenJarvis-1.0.0-arm64.exe` (Burn bundle) or the MSI from the GitHub Actions `winui-arm64` workflow (artifacts are unsigned unless signing is configured).
 2. The installer refuses x64 Windows. It requires ARM64.
 3. On first launch, review the local-AI notice and select **Use Foundry Local and continue**. Nothing is installed, started, or downloaded before this confirmation.
-4. The launch screen then installs and starts Foundry Local if necessary, downloads/loads `Phi-4-mini-instruct`, and starts the OpenJarvis API. On a machine without a usable GPU, model loading can fall back to a `*-generic-cpu` catalog entry.
+4. The launch screen then installs and starts Foundry Local if necessary. It resolves `Phi-4-mini-instruct` to a catalog variant (GPU, then NPU, then CPU), downloads and loads it, and starts the OpenJarvis API. If the GPU variant can't load (for example on a VM without a GPU), it falls back to the `*-generic-cpu` variant.
 5. The app opens Chat when all three setup steps are ready. Later launches reuse the saved consent and show live progress while checking the engine, model, and API server. Settings → **Setup** shows the current supervisor status and offers **Retry setup**.
 6. After the model and execution-provider assets have been downloaded, local chat can run without a network connection.
 7. Uninstall from Apps & Features. Conversations under `%USERPROFILE%\.openjarvis` and Foundry models stay unless you run [`windows/scripts/uninstall-cleanup.ps1`](../../windows/scripts/uninstall-cleanup.ps1) `-RemoveData`.
 
-## Demo walkthrough (re-record on Ultra)
+## Demo walkthrough
 
 1. Install the Burn bundle → launch OpenJarvis.
 2. On a fresh profile, approve local setup and watch the Inference Engine, AI Model, and API Server steps complete.
@@ -49,7 +49,7 @@ The native pages do not yet cover every React-client feature. See [known issues]
 10. Drag the navigation-pane splitter; restart and confirm its width persists. Confirm the window, taskbar, and Apps & Features icons.
 11. Kill `jarvis` in Task Manager; confirm the UI stays responsive and the supervisor recovers.
 
-See the [acceptance checklist](windows-winui-acceptance.md) for what has been verified and what still requires a physical-device or visual pass.
+See the [acceptance checklist](windows-winui-acceptance.md) for what is verified and what needs the Surface or a manual pass.
 
 ## Build from source (developers)
 
@@ -58,11 +58,12 @@ See the [acceptance checklist](windows-winui-acceptance.md) for what has been ve
 See [version pins](windows-winui-versions.md). You need:
 
 - Windows 11 24H2 (build 26100) or later on ARM64. Surface Laptop Ultra ships Windows 11 26H1 and does not take 26H2.
-- Visual Studio 2022 (or Build Tools) with the **WinUI / Windows App SDK** workload
+- Visual Studio 2022 or 2026 (or Build Tools) with the ARM64 C++ build tools and the Windows 11 SDK (26100). The WinUI workload isn't required: the Windows App SDK comes from NuGet
 - .NET 9 SDK (or a newer SDK that can target `net9.0-windows10.0.26100.0`)
-- Rust `aarch64-pc-windows-msvc` (for `openjarvis_rust`)
-- WiX Toolset 5
-- `uv`
+- Rust `aarch64-pc-windows-msvc` (for `openjarvis_rust`). `rust/rust-toolchain.toml` pins 1.88: `winget install Rustlang.Rustup`, then open a new terminal
+- LLVM/clang (`winget install LLVM.LLVM`), needed to build `ring` for ARM64. The build script finds it in `C:\Program Files\LLVM\bin`
+- WiX Toolset 5 (`dotnet tool install --global wix --version 5.0.2`)
+- `uv` 0.12.19 or newer, on PATH
 
 ```powershell
 cd OpenJarvis
@@ -70,7 +71,12 @@ $env:NUGET_PACKAGES = "$env:USERPROFILE\.nuget\packages"
 .\windows\scripts\publish-arm64.ps1
 ```
 
-That publishes a self-contained `win-arm64` app to `dist/OpenJarvis-win-arm64`, syncs the Python backend (`--extra server --group desktop-native`), and builds the MSI + Burn bundle into `dist/` when WiX builds succeed.
+That publishes a self-contained `win-arm64` app to `dist/OpenJarvis-win-arm64` and stages the backend payload next to it:
+
+- a standalone ARM64 CPython 3.12 in `payload\python`;
+- a relocatable venv in `payload\venv`, synced from `uv.lock` (`uv sync --frozen --no-editable --extra server --group desktop-native`) without touching the checkout's `.venv`.
+
+It then builds the MSI + Burn bundle into `dist/` when WiX builds succeed. A failed uv step stops the build. Use `-SkipPayload` to reuse the last payload, or `-SkipInstaller` to build only the app.
 
 Manual publish (app only):
 
@@ -85,17 +91,24 @@ dotnet publish windows\OpenJarvis.WinUI\OpenJarvis.WinUI.csproj `
 | Path | Role |
 |------|------|
 | `Program Files\OpenJarvis\OpenJarvis.exe` | WinUI 3 shell |
-| `Program Files\OpenJarvis\payload\` | Staged venv + source copied on first launch |
-| `%LOCALAPPDATA%\OpenJarvis\venv` | CPython 3.12 + OpenJarvis |
-| `%LOCALAPPDATA%\OpenJarvis\src` | Backend tree used by `uv run` fallbacks |
+| `Program Files\OpenJarvis\payload\python\` | Standalone ARM64 CPython 3.12 shipped with the installer |
+| `Program Files\OpenJarvis\payload\venv\` | Relocatable venv with OpenJarvis (`--extra server --group desktop-native`) |
+| `Program Files\OpenJarvis\payload\src\` | Copy of the backend source tree |
+| `%LOCALAPPDATA%\OpenJarvis\python` | Copied from `payload\python` on first launch; the venv's base interpreter (~63 MB) |
+| `%LOCALAPPDATA%\OpenJarvis\venv` | Copied from `payload\venv` on first launch; `pyvenv.cfg` `home` is rewritten to `%LOCALAPPDATA%\OpenJarvis\python`. Runs `Scripts\jarvis.exe serve` (~139 MB) |
+| `%LOCALAPPDATA%\OpenJarvis\src` | Copied from `payload\src`; working directory for `jarvis serve` (~26 MB) |
 | `%LOCALAPPDATA%\OpenJarvis\runtime\` | Downloaded Foundry MSIX cache |
-| `%LOCALAPPDATA%\OpenJarvis\logs\jarvis-serve.log` | Supervised backend output |
+| `%LOCALAPPDATA%\OpenJarvis\logs\jarvis-serve.log` | Supervised backend output; each start logs the exact command line |
 | `%USERPROFILE%\.openjarvis\config.toml` | Engine host, `allow_cloud` |
 | `%USERPROFILE%\.openjarvis\winui-conversations.json` | Chat history |
-| `%USERPROFILE%\.openjarvis\winui-settings.json` | WinUI preferences and saved setup consent |
+| `%USERPROFILE%\.openjarvis\winui-settings.json` | WinUI preferences, saved setup consent, and the resolved model id |
 | `%USERPROFILE%\.openjarvis\cloud-keys.env` | Cloud-provider keys saved by Settings |
 
-The supervisor attaches to an existing healthy `http://127.0.0.1:8000` if one is already running.
+Setting `OPENJARVIS_HOME` moves the `%USERPROFILE%\.openjarvis` files (the app passes it on to `jarvis serve`). It does not move `%LOCALAPPDATA%\OpenJarvis`.
+
+The `%LOCALAPPDATA%\OpenJarvis` copies are made only when missing, so upgrading the app doesn't refresh them (see [known issues](windows-winui-known-issues.md)).
+
+The supervisor attaches to an existing healthy `http://127.0.0.1:8000` if one is already running. A build run from inside a source checkout falls back to `uv run --extra server --project <checkout> jarvis serve`, but only when `%LOCALAPPDATA%\OpenJarvis\venv` doesn't exist.
 
 ## Changing the chat agent or model
 
