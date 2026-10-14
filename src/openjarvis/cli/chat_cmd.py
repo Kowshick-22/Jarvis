@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
+import time
 from typing import List, Optional
 
 import click
@@ -465,6 +467,7 @@ def chat(
 
         # Generate response even when optional memory context is unavailable.
         try:
+            t0_agent = time.perf_counter()
             if agent is not None:
                 from openjarvis.agents._stubs import AgentContext
 
@@ -489,6 +492,9 @@ def chat(
                     if isinstance(result, dict)
                     else str(result)
                 )
+            t_agent = time.perf_counter() - t0_agent
+            if os.environ.get("JARVIS_DEBUG_TEMPO") == "1":
+                console.print(f"[dim yellow][TEMPO] Resposta do agente: {t_agent:.2f}s[/dim yellow]")
 
             history.append(Message(role=Role.ASSISTANT, content=content))
             console.print()

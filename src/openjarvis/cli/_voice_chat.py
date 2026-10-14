@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from typing import Any, Optional
 
 from rich.markup import escape
@@ -146,6 +148,7 @@ def record_voice(
         return VOICE_EXIT
 
     console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
+    t0_rec = time.perf_counter()
     try:
         audio_bytes = record_until_silence()
     except KeyboardInterrupt:
@@ -158,13 +161,21 @@ def record_voice(
         console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
         return VOICE_EXIT
 
+    t_rec = time.perf_counter() - t0_rec
+    if os.environ.get("JARVIS_DEBUG_TEMPO") == "1":
+        console.print(f"[dim yellow][TEMPO] Gravação até o silêncio: {t_rec:.2f}s[/dim yellow]")
+
     console.print("[dim]Transcribing…[/dim]")
+    t0_trans = time.perf_counter()
     try:
         result = backend.transcribe(
             audio_bytes,
             format="wav",
             language=active_session.get_stt_language(),
         )
+        t_trans = time.perf_counter() - t0_trans
+        if os.environ.get("JARVIS_DEBUG_TEMPO") == "1":
+            console.print(f"[dim yellow][TEMPO] Transcrição: {t_trans:.2f}s[/dim yellow]")
         text = result.text.strip()
         if text:
             console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
@@ -196,7 +207,11 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
             synth_kwargs: dict[str, Any] = {"output_format": "wav", "speed": speed}
             if voice_id:
                 synth_kwargs["voice_id"] = voice_id
+            t0_synth = time.perf_counter()
             result = backend.synthesize(text, **synth_kwargs)
+            t_synth = time.perf_counter() - t0_synth
+            if os.environ.get("JARVIS_DEBUG_TEMPO") == "1":
+                console.print(f"[dim yellow][TEMPO] Síntese de voz: {t_synth:.2f}s[/dim yellow]")
             if result.audio:
                 play_wav(result.audio, sample_rate=result.sample_rate)
             return
