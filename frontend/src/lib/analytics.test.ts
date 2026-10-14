@@ -32,7 +32,13 @@ const response = (enabled: boolean) => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  mocks.init.mockImplementation((_key, config) => config.loaded(mocks));
+  let sdkInitialized = false;
+  mocks.init.mockImplementation((_key, config) => {
+    // Match PostHog: later init() calls do not call loaded again.
+    if (sdkInitialized) return;
+    sdkInitialized = true;
+    config.loaded(mocks);
+  });
 });
 
 describe('analytics sharing choice', () => {
@@ -72,6 +78,43 @@ describe('analytics sharing choice', () => {
     analytics.track('app_opened');
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.opt_out_capturing).toHaveBeenCalledOnce();
+  });
+
+  it('resumes browser capture when enabling again after a decline', async () => {
+    mocks.apiFetch.mockResolvedValue(response(true));
+    const analytics = await import('./analytics');
+    await analytics.saveAnalyticsPreference(true);
+    mocks.apiFetch.mockResolvedValue(response(false));
+    await analytics.saveAnalyticsPreference(false);
+    mocks.apiFetch.mockResolvedValue(response(true));
+    await analytics.saveAnalyticsPreference(true);
+
+    expect(mocks.init).toHaveBeenCalledOnce();
+    expect(mocks.opt_in_capturing).toHaveBeenCalledTimes(2);
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
+    expect(analytics.getAnonId()).toBe('test-id');
+    analytics.track('app_opened');
+    expect(mocks.capture).toHaveBeenCalledWith('app_opened', {});
+  });
+
+  it('does not resume on a delayed SDK load after decline, but allows a later opt-in', async () => {
+    let finishLoading: () => void = () => {};
+    mocks.init.mockImplementationOnce((_key, config) => { finishLoading = config.loaded; });
+    mocks.apiFetch.mockResolvedValue(response(true));
+    const analytics = await import('./analytics');
+    const startup = analytics.initAnalytics();
+    await vi.waitFor(() => expect(mocks.init).toHaveBeenCalledOnce());
+    mocks.apiFetch.mockResolvedValue(response(false));
+    await analytics.saveAnalyticsPreference(false);
+    finishLoading();
+    await startup;
+    expect(analytics.isAnalyticsEnabled()).toBe(false);
+    expect(mocks.opt_in_capturing).not.toHaveBeenCalled();
+
+    mocks.apiFetch.mockResolvedValue(response(true));
+    await analytics.saveAnalyticsPreference(true);
+    expect(mocks.init).toHaveBeenCalledOnce();
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
   });
 
   it('does not enable capture when saving the choice fails', async () => {

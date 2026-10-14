@@ -28,7 +28,6 @@ from openjarvis.analytics.identity import (
     is_analytics_enabled,
 )
 from openjarvis.core.config import JarvisConfig, load_config
-from openjarvis.core.paths import get_config_path
 
 logger = logging.getLogger(__name__)
 _preference_lock = threading.RLock()
@@ -109,7 +108,7 @@ def set_preference(choice: AnalyticsPreference, request: Request) -> AnalyticsId
     """Persist an explicit UI choice and update analytics without restarting."""
     with _preference_lock:
         cfg = getattr(request.app.state, "config", None) or load_config()
-        path = get_config_path()
+        path = cfg._config_path
         temporary: Path | None = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)

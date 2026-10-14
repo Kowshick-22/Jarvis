@@ -24,8 +24,8 @@ def preference_app(tmp_path: Path, monkeypatch):
     path = tmp_path / "custom-config.toml"
     path.write_text('# Keep this comment\n[engine]\ndefault = "ollama"\n')
     cfg = JarvisConfig()
+    cfg._config_path = path
     cfg.analytics.anon_id_path = str(tmp_path / "anon_id")
-    monkeypatch.setattr(analytics_routes, "get_config_path", lambda: path)
 
     def fake_sdk(client):
         client._posthog = MagicMock()
@@ -77,6 +77,57 @@ def test_enable_and_disable_apply_immediately_and_survive_reload(preference_app)
     assert loaded.analytics.choice_recorded is True
     assert loaded.engine.default == "ollama"
     assert "# Keep this comment" in path.read_text()
+
+
+@pytest.mark.parametrize(
+    "config_source", ["default", "environment", "explicit", "programmatic"]
+)
+@pytest.mark.parametrize("enabled", [False, True])
+def test_preference_persists_to_active_config(
+    preference_app, tmp_path, monkeypatch, config_source, enabled
+):
+    app, _, _ = preference_app
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("OPENJARVIS_HOME", str(home))
+    monkeypatch.delenv("OPENJARVIS_CONFIG", raising=False)
+    default_path = home / "config.toml"
+    path = default_path
+    if config_source in ("environment", "explicit"):
+        path = tmp_path / "deployment.toml"
+        default_path.write_text("# Leave the default configuration alone\n")
+    if config_source == "environment":
+        monkeypatch.setenv("OPENJARVIS_CONFIG", str(path))
+    elif config_source == "explicit":
+        # An explicit load path takes precedence over the environment too.
+        monkeypatch.setenv("OPENJARVIS_CONFIG", str(tmp_path / "unused.toml"))
+    path.write_text(f"[analytics]\nenabled = {str(not enabled).lower()}\n")
+    load_config.cache_clear()
+    try:
+        if config_source == "programmatic":
+            cfg = JarvisConfig()
+            cfg.analytics.enabled = not enabled
+        else:
+            cfg = load_config(path if config_source == "explicit" else None)
+        analytics_routes.configure_analytics(app, cfg)
+
+        response = TestClient(app).post(
+            "/v1/analytics/preference", json={"enabled": enabled}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is enabled
+        load_config.cache_clear()
+        reloaded = load_config(path if config_source == "explicit" else None)
+        assert reloaded.analytics.enabled is enabled
+        assert reloaded.analytics.choice_recorded is True
+        if path != default_path:
+            assert (
+                default_path.read_text() == "# Leave the default configuration alone\n"
+            )
+        assert not (tmp_path / "unused.toml").exists()
+    finally:
+        load_config.cache_clear()
 
 
 def test_decline_does_not_wait_for_an_unreachable_analytics_server(preference_app):

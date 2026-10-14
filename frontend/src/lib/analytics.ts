@@ -63,6 +63,7 @@ let initialized = false;
 let enabledState = false;
 let cachedAnonId = '';
 let generation = 0;
+let sdkReady: Promise<void> | null = null;
 
 export async function fetchAnalyticsIdentity(): Promise<AnalyticsIdentity> {
   const response = await apiFetch('/v1/analytics/identity');
@@ -110,27 +111,32 @@ export async function initAnalytics(force = false): Promise<void> {
 
     cachedAnonId = identity.anon_id;
 
-    posthog.init(identity.key, {
-      api_host: identity.host,
-      bootstrap: { distinctID: identity.anon_id },
-      // No surprise data collection — only events we call out by name.
-      autocapture: false,
-      capture_pageview: false,
-      capture_pageleave: false,
-      disable_session_recording: true,
-      // No /decide call for feature flags (saves a request, we don't use them yet).
-      advanced_disable_decide: true,
-      // No PostHog person profiles — we're not making accounts, just sending events.
-      person_profiles: 'never',
-      // Don't try to load IP geolocation; backend disables this too.
-      ip: false,
-      // Best-effort sending only.
-      loaded: (client) => {
-        if (currentGeneration !== generation) return;
-        posthog.opt_in_capturing({ captureEventName: false });
-        enabledState = true;
-      },
-    });
+    // PostHog ignores repeated init() calls. Share the first initialization,
+    // then explicitly resume capture for every later opt-in.
+    if (!sdkReady) {
+      sdkReady = new Promise<void>((resolve) => {
+        posthog.init(identity.key, {
+          api_host: identity.host,
+          bootstrap: { distinctID: identity.anon_id },
+          // No surprise data collection — only events we call out by name.
+          autocapture: false,
+          capture_pageview: false,
+          capture_pageleave: false,
+          disable_session_recording: true,
+          // No /decide call for feature flags (saves a request, we don't use them yet).
+          advanced_disable_decide: true,
+          // No PostHog person profiles — we're not making accounts, just sending events.
+          person_profiles: 'never',
+          // Don't try to load IP geolocation; backend disables this too.
+          ip: false,
+          loaded: () => resolve(),
+        });
+      });
+    }
+    await sdkReady;
+    if (currentGeneration !== generation) return;
+    posthog.opt_in_capturing({ captureEventName: false });
+    enabledState = true;
 
     // Set distinct_id explicitly in case bootstrap raced.
     posthog.identify(identity.anon_id);

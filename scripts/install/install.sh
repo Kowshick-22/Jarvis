@@ -310,15 +310,41 @@ EOF
 
 persist_analytics_choice() {
     # Always run, including when the installer skips write_config on a
-    # rerun. The existing config command preserves unrelated TOML fields.
+    # rerun. Use the installed TOML editor directly: an older jarvis CLI
+    # rejects the new choice_recorded key before it can save the choice.
     local enabled=false
     if analytics_enabled; then
         enabled=true
     fi
-    "$VENV_DIR/bin/jarvis" config set analytics.enabled "$enabled"
-    if [[ -n "$ANALYTICS_CHOICE" ]]; then
-        "$VENV_DIR/bin/jarvis" config set analytics.choice_recorded true
-    fi
+    "$VENV_DIR/bin/python" - "$enabled" "$ANALYTICS_CHOICE" <<'PYEOF'
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import tomlkit
+
+from openjarvis.core.config import DEFAULT_CONFIG_PATH
+
+path = Path(os.environ.get("OPENJARVIS_CONFIG") or DEFAULT_CONFIG_PATH).expanduser().resolve()
+path.parent.mkdir(parents=True, exist_ok=True)
+doc = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
+if "analytics" not in doc:
+    doc.add("analytics", tomlkit.table())
+doc["analytics"]["enabled"] = sys.argv[1] == "true"
+if sys.argv[2]:
+    doc["analytics"]["choice_recorded"] = True
+
+temporary = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        handle.write(tomlkit.dumps(doc))
+    temporary.replace(path)
+finally:
+    if temporary is not None:
+        temporary.unlink(missing_ok=True)
+PYEOF
 }
 
 detect_os() {

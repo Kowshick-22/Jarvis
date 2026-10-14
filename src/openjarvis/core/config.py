@@ -1812,6 +1812,20 @@ class JarvisConfig:
         self.__dict__["_config_source_dir"] = Path(value)
 
     @property
+    def _config_path(self) -> Path:
+        """Loaded config file, or the configured default for new instances."""
+        source = self.__dict__.get("_config_source_path")
+        if source is not None:
+            return source
+        if custom_path := os.environ.get("OPENJARVIS_CONFIG"):
+            return Path(custom_path).expanduser().resolve()
+        return get_config_path()
+
+    @_config_path.setter
+    def _config_path(self, value: Path) -> None:
+        self.__dict__["_config_source_path"] = Path(value)
+
+    @property
     def memory(self) -> StorageConfig:
         """Backward-compatible accessor — canonical location is tools.storage."""
         return self.tools.storage
@@ -2077,6 +2091,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
         config_path = get_config_path()
+    cfg._config_path = config_path
     cfg._config_dir = config_path.parent
     if config_path.exists():
         with open(config_path, "rb") as fh:
