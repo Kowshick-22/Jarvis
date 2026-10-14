@@ -18,13 +18,13 @@ The OpenJarvis evaluation framework (`openjarvis.evals`) measures model **correc
 
 ## Installation
 
-The evaluation framework is part of the main `openjarvis` package — no separate install or extra is required. The standard dev setup is enough:
+The evaluation framework is part of the main `openjarvis` package. The standard dev setup includes everything it needs:
 
 ```bash
 uv sync --extra dev
 ```
 
-The framework's core dependencies (`click`, `datasets`, `rich`) are base dependencies of `openjarvis`. Two optional extras enable experiment tracking integrations:
+Benchmark datasets are loaded with Hugging Face `datasets`, which is not a base dependency (it pulls `pyarrow`, which has no Windows ARM64 wheels). It comes with `--extra dev`; outside a dev setup, install it with `--extra eval` (`pip install openjarvis[eval]`). Two optional extras enable experiment tracking integrations:
 
 ```bash
 uv sync --extra dev --extra eval-wandb     # Weights & Biases run tracking

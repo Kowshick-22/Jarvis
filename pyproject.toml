@@ -30,12 +30,18 @@ classifiers = [
 dependencies = [
     "click>=8",
     "croniter>=2.0",
-    "datasets>=4.5.0",
     "ddgs>=9.11.4",
     "httpx>=0.27",
+    # numpy, packaging and pyyaml used to arrive via `datasets` (now the `eval`
+    # extra); skills, embeddings/hybrid search and the CLI import them directly.
+    # 2.3 is the first numpy with Windows ARM64 wheels; it needs Python 3.11+.
+    "numpy>=1.24; python_version < '3.11'",
+    "numpy>=2.3; python_version >= '3.11'",
     "openai>=1.30",
     "nvidia-ml-py>=12.560.30",
+    "packaging>=23.0",
     "posthog>=3.0",
+    "pyyaml>=6.0",
     "python-telegram-bot>=22.8",
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
@@ -53,7 +59,11 @@ dev = [
     "respx>=0.22",
     "ruff>=0.4",
     "pre-commit>=3.0",
+    "datasets>=4.5.0",
 ]
+# Benchmark loaders (openjarvis.evals.datasets). Kept out of the base install:
+# datasets pulls pyarrow, which has no Windows ARM64 wheels.
+eval = ["datasets>=4.5.0"]
 inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = [
