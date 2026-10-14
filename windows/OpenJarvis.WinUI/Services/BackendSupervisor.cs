@@ -173,7 +173,7 @@ public sealed class BackendSupervisor : IDisposable
             SetStatus(
                 SetupStep.Model,
                 "Loading model",
-                $"This device cannot load {model}. Using {loaded} instead.",
+                $"Using {loaded} for {model}.",
                 false);
         }
     }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OpenJarvis.WinUI.Models;
@@ -159,6 +160,8 @@ public sealed class FoundryClient
             return model;
         }
 
+        model = await ResolveCatalogIdAsync(model, cancellationToken);
+
         if (await IsModelLoadedAsync(model, cancellationToken))
         {
             progress?.Report($"Model {model} is already loaded.");
@@ -184,6 +187,62 @@ public sealed class FoundryClient
         }
 
         return model;
+    }
+
+    /// <summary>
+    /// Turn an alias or variant-name prefix (<c>phi-4-mini</c>,
+    /// <c>Phi-4-mini-instruct</c>) into a versioned catalog id such as
+    /// <c>Phi-4-mini-instruct-generic-gpu:5</c>. <c>foundry model load</c> and
+    /// chat completions both reject the bare name. Prefers GPU, then NPU, then
+    /// CPU; a failed GPU load still falls back through <see cref="CpuCatalogId"/>.
+    /// Returns <paramref name="model"/> unchanged if it is already versioned or
+    /// nothing in the catalog matches.
+    /// </summary>
+    public async Task<string> ResolveCatalogIdAsync(string model, CancellationToken cancellationToken)
+    {
+        var foundry = FindFoundry();
+        if (foundry is null || string.IsNullOrWhiteSpace(model) || model.Contains(':'))
+        {
+            return model;
+        }
+
+        var (stdout, _) = await RunCaptureAsync(
+            foundry,
+            "model list --variants -o json",
+            cancellationToken);
+        var jsonStart = stdout.IndexOf('{');
+        if (jsonStart < 0)
+        {
+            return model;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout[jsonStart..]);
+            if (!doc.RootElement.TryGetProperty("variants", out var variants) ||
+                variants.ValueKind != JsonValueKind.Array)
+            {
+                return model;
+            }
+
+            string[] devicePreference = ["Gpu", "Npu", "Cpu"];
+            var best = variants.EnumerateArray()
+                .Where(variant => VariantMatches(model, variant) && ReadString(variant, "variantId") is not null)
+                .OrderBy(variant =>
+                {
+                    var index = Array.FindIndex(
+                        devicePreference,
+                        device => string.Equals(device, ReadString(variant, "device"), StringComparison.OrdinalIgnoreCase));
+                    return index < 0 ? devicePreference.Length : index;
+                })
+                .Select(variant => ReadString(variant, "variantId"))
+                .FirstOrDefault();
+            return best ?? model;
+        }
+        catch (JsonException)
+        {
+            return model;
+        }
     }
 
     /// <summary>
@@ -541,7 +600,10 @@ public sealed class FoundryClient
         string failureMessage,
         IProgress<string>? progress = null)
     {
-        Exception? last = null;
+        // Keep every attempt's error: the first variant usually carries the real
+        // cause (e.g. a WebGPU EP_FAIL that triggers the CPU fallback), while a
+        // later legacy variant only reports that its command no longer exists.
+        var failures = new List<InvalidOperationException>();
         foreach (var arguments in argumentVariants)
         {
             try
@@ -551,13 +613,13 @@ public sealed class FoundryClient
             }
             catch (InvalidOperationException ex)
             {
-                last = ex;
+                failures.Add(ex);
             }
         }
 
         throw new InvalidOperationException(
-            failureMessage + (last is null ? "" : " " + last.Message),
-            last);
+            failureMessage + (failures.Count == 0 ? "" : " " + string.Join(" / ", failures.Select(f => f.Message))),
+            failures.FirstOrDefault());
     }
 
     private static async Task RunAsync(
@@ -573,6 +635,9 @@ public sealed class FoundryClient
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // foundry prints UTF-8 (status glyphs); the default OEM/ANSI code page garbles it.
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true
         };
         using var process = Process.Start(start)
@@ -623,6 +688,9 @@ public sealed class FoundryClient
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // foundry prints UTF-8 (status glyphs); the default OEM/ANSI code page garbles it.
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true
         };
         using var process = Process.Start(start)
