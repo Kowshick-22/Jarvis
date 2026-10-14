@@ -19,6 +19,13 @@ public static class RuntimeBootstrap
             return;
         }
 
+        var payloadPython = Path.Combine(payload, "python");
+        if (Directory.Exists(payloadPython) && !File.Exists(Path.Combine(AppPaths.PythonDir, "python.exe")))
+        {
+            progress?.Report("Installing Python runtime…");
+            CopyDirectory(payloadPython, AppPaths.PythonDir);
+        }
+
         var payloadVenv = Path.Combine(payload, "venv");
         if (Directory.Exists(payloadVenv) && !File.Exists(Path.Combine(AppPaths.VenvDir, "Scripts", "jarvis.exe")))
         {
@@ -26,11 +33,37 @@ public static class RuntimeBootstrap
             CopyDirectory(payloadVenv, AppPaths.VenvDir);
         }
 
+        PointVenvAtLocalPython();
+
         var payloadSrc = Path.Combine(payload, "src");
         if (Directory.Exists(payloadSrc) && !Directory.Exists(Path.Combine(AppPaths.SrcDir, "src", "openjarvis")))
         {
             progress?.Report("Installing OpenJarvis source tree…");
             CopyDirectory(payloadSrc, AppPaths.SrcDir);
+        }
+    }
+
+    /// <summary>
+    /// A venv's pyvenv.cfg records the absolute path of its base interpreter,
+    /// which is the build machine's path in the payload. Repoint it at the
+    /// interpreter copied next to it so the venv starts on this machine.
+    /// </summary>
+    private static void PointVenvAtLocalPython()
+    {
+        var cfg = Path.Combine(AppPaths.VenvDir, "pyvenv.cfg");
+        if (!File.Exists(cfg) || !File.Exists(Path.Combine(AppPaths.PythonDir, "python.exe")))
+        {
+            return;
+        }
+
+        var home = $"home = {AppPaths.PythonDir}";
+        var lines = File.ReadAllLines(cfg);
+        var updated = lines
+            .Select(line => line.StartsWith("home =", StringComparison.OrdinalIgnoreCase) ? home : line)
+            .ToArray();
+        if (!updated.SequenceEqual(lines))
+        {
+            File.WriteAllLines(cfg, updated);
         }
     }
 

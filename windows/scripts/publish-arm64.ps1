@@ -1,4 +1,4 @@
-# Requires: Windows ARM64, .NET 9 SDK, Visual Studio 2022 WinUI workload, Rust aarch64-pc-windows-msvc, WiX 5, uv.
+# Requires: Windows ARM64, .NET 9 SDK, Visual Studio 2022 WinUI workload, Rust aarch64-pc-windows-msvc, LLVM (clang), WiX 5, uv.
 # Produces: dist/OpenJarvis-win-arm64/ (app), dist/OpenJarvis-<ver>-arm64.msi, dist/OpenJarvis-<ver>-arm64.exe (Burn)
 [CmdletBinding()]
 param(

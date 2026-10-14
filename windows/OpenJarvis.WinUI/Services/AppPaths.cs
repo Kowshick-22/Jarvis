@@ -20,6 +20,7 @@ public static class AppPaths
     public static string CloudKeysEnv => Path.Combine(ConfigDir, "cloud-keys.env");
     public static string RuntimeDir => Path.Combine(LocalAppData, "runtime");
     public static string SrcDir => Path.Combine(LocalAppData, "src");
+    public static string PythonDir => Path.Combine(LocalAppData, "python");
     public static string VenvDir => Path.Combine(LocalAppData, "venv");
     public static string LogsDir => Path.Combine(LocalAppData, "logs");
 
