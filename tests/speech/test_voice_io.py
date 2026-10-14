@@ -59,3 +59,65 @@ def test_post_speech_uses_normal_silence_window(monkeypatch) -> None:
     )
 
     assert stream.reads == 3
+
+
+def test_post_speech_uses_env_var_silence_window(monkeypatch) -> None:
+    speech = struct.pack("1024h", *([1000] * 1024))
+    silence = bytes(1024 * 2)
+    stream = _FakeStream([speech, silence, silence, silence])
+    _install_audio(monkeypatch, stream)
+
+    monkeypatch.setenv("JARVIS_SILENCE_SECONDS", "1")
+    record_until_silence(
+        sample_rate=1024,
+        startup_silence_seconds=1,
+        max_seconds=30,
+    )
+
+    # 1 speech chunk + 1 silence chunk = 2 reads
+    assert stream.reads == 2
+
+
+def test_silence_threshold_env_var_parsing(monkeypatch) -> None:
+    from openjarvis.speech.voice_io import _get_silence_threshold
+
+    monkeypatch.setenv("JARVIS_SILENCE_THRESHOLD", "1000")
+    assert _get_silence_threshold() == 1000
+
+    # Zero falls back to default 500
+    monkeypatch.setenv("JARVIS_SILENCE_THRESHOLD", "0")
+    assert _get_silence_threshold() == 500
+
+    # Negative falls back to default 500
+    monkeypatch.setenv("JARVIS_SILENCE_THRESHOLD", "-100")
+    assert _get_silence_threshold() == 500
+
+    # Invalid string falls back to default 500
+    monkeypatch.setenv("JARVIS_SILENCE_THRESHOLD", "invalid")
+    assert _get_silence_threshold() == 500
+
+    # Unset falls back to default 500
+    monkeypatch.delenv("JARVIS_SILENCE_THRESHOLD", raising=False)
+    assert _get_silence_threshold() == 500
+
+
+def test_silence_threshold_env_var_recording(monkeypatch) -> None:
+    # Noise at 800 RMS (higher than 500 default, but lower than threshold 1000)
+    noise = struct.pack("1024h", *([800] * 1024))
+    speech = struct.pack("1024h", *([2000] * 1024))
+    stream = _FakeStream([speech, noise, noise, noise])
+    _install_audio(monkeypatch, stream)
+
+    # Set threshold to 1000: noise (800) should now be counted as silence
+    monkeypatch.setenv("JARVIS_SILENCE_THRESHOLD", "1000")
+    monkeypatch.setenv("JARVIS_SILENCE_SECONDS", "1")
+    record_until_silence(
+        sample_rate=1024,
+        startup_silence_seconds=1,
+        max_seconds=30,
+    )
+
+    # 1 speech chunk + 1 silence chunk = 2 reads
+    assert stream.reads == 2
+
+

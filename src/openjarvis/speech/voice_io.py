@@ -3,15 +3,44 @@
 from __future__ import annotations
 
 import io
+import os
 import wave
 
 _SAMPLE_RATE = 16000
 _CHANNELS = 1
 _CHUNK = 1024
-_SILENCE_THRESHOLD = 500  # RMS below this → silence
-_SILENCE_SECONDS = 1.5  # seconds of silence before auto-stop
+_DEFAULT_SILENCE_THRESHOLD = 500  # RMS below this → silence
+_SILENCE_THRESHOLD = _DEFAULT_SILENCE_THRESHOLD  # backward-compat alias
+_DEFAULT_SILENCE_SECONDS = 1.5  # default seconds of silence before auto-stop
+_SILENCE_SECONDS = _DEFAULT_SILENCE_SECONDS  # backward-compat alias
 _STARTUP_SILENCE_SECONDS = 5.0  # give up early if speech never begins
 _MAX_RECORD_SECONDS = 30  # safety ceiling
+
+
+def _get_silence_threshold() -> int:
+    """Read silence threshold from JARVIS_SILENCE_THRESHOLD env var, defaulting to 500."""
+    raw = os.environ.get("JARVIS_SILENCE_THRESHOLD", "").strip()
+    if raw:
+        try:
+            val = int(float(raw))
+            if val > 0:
+                return val
+        except (ValueError, OverflowError):
+            pass
+    return _DEFAULT_SILENCE_THRESHOLD
+
+
+def _get_silence_seconds() -> float:
+    """Read silence duration from JARVIS_SILENCE_SECONDS env var, defaulting to 1.5s."""
+    raw = os.environ.get("JARVIS_SILENCE_SECONDS", "").strip()
+    if raw:
+        try:
+            val = float(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return _DEFAULT_SILENCE_SECONDS
 
 
 def _rms(data: bytes) -> float:
@@ -28,8 +57,8 @@ def _rms(data: bytes) -> float:
 def record_until_silence(
     *,
     sample_rate: int = _SAMPLE_RATE,
-    silence_threshold: int = _SILENCE_THRESHOLD,
-    silence_seconds: float = _SILENCE_SECONDS,
+    silence_threshold: int | None = None,
+    silence_seconds: float | None = None,
     startup_silence_seconds: float = _STARTUP_SILENCE_SECONDS,
     max_seconds: float = _MAX_RECORD_SECONDS,
 ) -> bytes:
@@ -38,6 +67,11 @@ def record_until_silence(
     Returns raw WAV bytes (16-bit mono).
     Raises RuntimeError if sounddevice is not installed.
     """
+    if silence_threshold is None:
+        silence_threshold = _get_silence_threshold()
+    if silence_seconds is None:
+        silence_seconds = _get_silence_seconds()
+
     try:
         import sounddevice as sd
     except ImportError:
