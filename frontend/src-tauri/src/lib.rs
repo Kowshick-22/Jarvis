@@ -905,7 +905,7 @@ fn rust_toolchain_install_hint() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
     return "The desktop app needs Rust and Visual Studio Build Tools with the x64 C++ workload \
             for its x64 Python backend. Install Rust from https://rustup.rs, run \
-            `rustup target add x86_64-pc-windows-msvc`, then relaunch.";
+            `rustup target add --toolchain stable x86_64-pc-windows-msvc`, then relaunch.";
     #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
     "The desktop app needs the Rust toolchain to build `openjarvis_rust`. \
      Install Rust from https://rustup.rs. On Windows, also install Visual Studio \
@@ -913,7 +913,7 @@ fn rust_toolchain_install_hint() -> &'static str {
 }
 
 /// Windows ARM64 runs the current Python dependency stack under x64 emulation:
-/// the locked numpy/pandas/pyarrow and speech wheels do not support win_arm64.
+/// the locked numpy/pyarrow and speech wheels do not support win_arm64.
 /// The Tauri shell and bundled Ollama remain native ARM64 processes.
 #[cfg_attr(
     not(all(target_os = "windows", target_arch = "aarch64")),
@@ -925,6 +925,12 @@ fn prepare_backend_python(cmd: &mut tokio::process::Command) {
         cmd.env("UV_PYTHON", "cpython-3.12-windows-x86_64-none");
         // The PyO3 module must match the interpreter, not the desktop shell.
         cmd.env("CARGO_BUILD_TARGET", "x86_64-pc-windows-msvc");
+        // Use the same stable compiler where the x64 target was installed,
+        // rather than selecting a separate toolchain through the MSRV pin.
+        cmd.env("RUSTUP_TOOLCHAIN", "stable");
+        // PyO3 cannot infer the target interpreter's ABI across host arches.
+        cmd.env("PYO3_CROSS_PYTHON_VERSION", "3.12");
+        cmd.env("PYO3_CROSS_PYTHON_IMPLEMENTATION", "CPython");
     }
 }
 

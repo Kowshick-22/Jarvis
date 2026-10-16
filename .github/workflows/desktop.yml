@@ -9,6 +9,9 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'rust/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
     inputs:
@@ -71,6 +74,9 @@ jobs:
         env:
           UV_PYTHON: cpython-3.12-windows-x86_64-none
           CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+          RUSTUP_TOOLCHAIN: stable
+          PYO3_CROSS_PYTHON_VERSION: '3.12'
+          PYO3_CROSS_PYTHON_IMPLEMENTATION: CPython
         run: |
           uv sync --locked --extra dev --extra desktop --extra inference-cloud --extra inference-google --group desktop-native
           uv run python -c "import sysconfig, openjarvis_rust; assert sysconfig.get_platform() == 'win-amd64'; print('x64 backend and Rust extension import OK')"

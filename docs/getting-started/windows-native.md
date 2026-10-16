@@ -16,17 +16,26 @@ only include x64 installers.
 This uses the same UI, backend, and Ollama integration as the other desktop
 builds. The desktop executable and bundled Ollama are ARM64. The current
 Python dependency stack has no Windows ARM64 wheels for several packages,
-including the locked NumPy, pandas, PyArrow, and speech dependencies. The app
+including the locked NumPy, PyArrow, and speech dependencies. The app
 therefore selects uv-managed **x64 CPython 3.12** and builds the Rust Python
 extension for x64; Windows runs that backend through x64 emulation. This
 preserves the existing features without a separate UI or dependency stack.
 
 First-launch prerequisites are the same as the x64 desktop: Git, uv, Rust,
 and Visual Studio Build Tools with the **x64 C++ workload**. With an ARM64
-Rust installation, also run `rustup target add x86_64-pc-windows-msvc` so the
-Python extension can target x64. The ARM64 desktop build itself requires the
-ARM64 C++ build tools. Setup still requires the user's inference-source choice
-before starting local inference or downloading a model.
+Rust installation, install the x64 target for stable Rust:
+
+```powershell
+rustup target add --toolchain stable x86_64-pc-windows-msvc
+```
+
+The ARM64 app uses stable Rust for backend builds so the compiler matches the
+installed x64 target, rather than selecting a separate minimum-version toolchain.
+It also supplies PyO3's cross-compilation settings for x64 CPython 3.12.
+The Python extension still targets x64. The ARM64 desktop build itself requires the
+ARM64 C++ build tools and Clang (the Visual Studio **C++ Clang tools for Windows**
+component, with `clang.exe` on PATH). Setup still requires the user's
+inference-source choice before starting local inference or downloading a model.
 
 ### Testing without a Windows ARM laptop
 
@@ -37,8 +46,8 @@ Ollama executable headers identify ARM64, and uploads the
 `windows-arm64-test-installer` artifact. Passing this job verifies the build
 and dependency path; it does not verify interactive chat or hardware acceleration.
 
-For an interactive test, use Windows 11 ARM in Parallels or VMware Fusion on
-an Apple silicon Mac. Download the installer artifact from the PR's Actions
+For an interactive test, use Windows 11 ARM in UTM, Parallels, or VMware Fusion
+on an Apple silicon Mac. Download the installer artifact from the PR's Actions
 run, then check:
 
 1. Settings → System → About identifies an ARM-based processor.
