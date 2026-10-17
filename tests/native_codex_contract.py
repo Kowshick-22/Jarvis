@@ -224,26 +224,44 @@ class LauncherContract(unittest.TestCase):
         import io
         return io.BytesIO(b'{"model":"codex/gpt-6.1-sol","agent":"simple"}')
 
-    def test_existing_ready_server_is_reused(self):
+    def test_existing_ready_server_opens_native_window_only(self):
         m=self.load()
-        with patch.object(m.urllib.request,'urlopen',return_value=self.response()), patch.object(m.subprocess,'run') as run, patch.object(m.webbrowser,'open') as browser:
+        with patch.object(m.Path,'is_file',return_value=True), patch.object(m.os,'access',return_value=True), patch.object(m.urllib.request,'urlopen',return_value=self.response()), patch.object(m.subprocess,'run') as run, patch.object(m.subprocess,'Popen') as desktop:
             self.assertEqual(m.main(),0)
-        run.assert_not_called();browser.assert_called_once_with('http://127.0.0.1:8001')
+        run.assert_not_called()
+        desktop.assert_called_once()
+        self.assertTrue(desktop.call_args.args[0][0].endswith('/target/release/openjarvis-desktop'))
+        self.assertEqual(desktop.call_args.kwargs['env']['OPENJARVIS_DESKTOP_ATTACH_PORT'],'8001')
 
     def test_start_uses_opt_in_without_inherited_token(self):
         m=self.load()
-        with patch.dict(os.environ,{'OPENAI_CODEX_API_KEY':'private sentinel'}), patch.object(m.urllib.request,'urlopen',side_effect=[OSError(),self.response()]), patch.object(m.subprocess,'run',return_value=Mock(returncode=0)) as run, patch.object(m.webbrowser,'open'):
+        with patch.object(m.Path,'is_file',return_value=True), patch.object(m.os,'access',return_value=True), patch.dict(os.environ,{'OPENAI_CODEX_API_KEY':'private sentinel'}), patch.object(m.urllib.request,'urlopen',side_effect=[OSError(),self.response()]), patch.object(m.subprocess,'run',return_value=Mock(returncode=0)) as run, patch.object(m.subprocess,'Popen') as desktop:
             self.assertEqual(m.main(),0)
         args=run.call_args
         self.assertNotIn('OPENAI_CODEX_API_KEY',args.kwargs['env'])
+        self.assertNotIn('OPENAI_CODEX_API_KEY',desktop.call_args.kwargs['env'])
         self.assertEqual(args.kwargs['env']['OPENAI_CODEX_USE_LOCAL_AUTH'],'1')
         self.assertNotIn('private sentinel',str(args.args))
         self.assertIn('codex/gpt-6.1-sol',args.args[0])
 
-    def test_failed_start_does_not_open_browser(self):
+    def test_failed_start_does_not_open_desktop(self):
         m=self.load()
-        with patch.object(m.urllib.request,'urlopen',side_effect=OSError()), patch.object(m.subprocess,'run',return_value=Mock(returncode=1)), patch.object(m.webbrowser,'open') as browser, patch('builtins.print'):
+        with patch.object(m.Path,'is_file',return_value=True), patch.object(m.os,'access',return_value=True), patch.object(m.urllib.request,'urlopen',side_effect=OSError()), patch.object(m.subprocess,'run',return_value=Mock(returncode=1)), patch.object(m.subprocess,'Popen') as desktop, patch('builtins.print'):
             self.assertEqual(m.main(),1)
-        browser.assert_not_called()
+        desktop.assert_not_called()
+
+    def test_listen_option_starts_native_app_hidden(self):
+        m=self.load()
+        with patch.object(m.Path,'is_file',return_value=True), patch.object(m.os,'access',return_value=True), patch.object(m.urllib.request,'urlopen',return_value=self.response()), patch.object(m.sys,'argv',['launcher','--listen']), patch.object(m.subprocess,'Popen') as desktop:
+            self.assertEqual(m.main(),0)
+        self.assertEqual(desktop.call_args.args[0][-1],'--hidden')
+        self.assertEqual(desktop.call_args.kwargs['env']['OPENJARVIS_DESKTOP_WAKE'],'1')
+
+    def test_missing_native_binary_does_not_start_server(self):
+        m=self.load()
+        with patch.object(m.Path,'is_file',return_value=False), patch.object(m.subprocess,'run') as run, patch.object(m.subprocess,'Popen') as desktop, patch('builtins.print'):
+            self.assertEqual(m.main(),1)
+        run.assert_not_called()
+        desktop.assert_not_called()
 
 if __name__=='__main__':unittest.main()
