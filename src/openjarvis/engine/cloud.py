@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+import asyncio
 import json
 import logging
 import os
@@ -504,7 +505,8 @@ class CloudEngine(InferenceEngine):
         # Supports both standard API keys (api.openai.com) and ChatGPT
         # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
         codex_token = os.environ.get("OPENAI_CODEX_API_KEY")
-        if codex_token:
+        local_codex = os.environ.get("OPENAI_CODEX_USE_LOCAL_AUTH") == "1"
+        if codex_token or local_codex:
             codex_url = os.environ.get(
                 "OPENAI_CODEX_BASE_URL",
                 "https://api.openai.com/v1",
@@ -515,6 +517,12 @@ class CloudEngine(InferenceEngine):
                 "token": codex_token,
                 "url": codex_url,
             }
+            if local_codex and not codex_token:
+                from openjarvis.engine._codex_auth import LocalCodexAuth
+
+                if codex_url != "https://chatgpt.com/backend-api/codex/responses":
+                    raise EngineConnectionError("Local Codex auth requires the ChatGPT endpoint")
+                self._codex_client["auth"] = LocalCodexAuth()
 
     def _prepare_anthropic_messages(
         self,
@@ -593,6 +601,10 @@ class CloudEngine(InferenceEngine):
                 )
         return instructions, input_msgs
 
+    def _codex_access_token(self) -> str:
+        auth = self._codex_client.get("auth")
+        return auth.access_token() if auth else self._codex_client["token"]
+
     def _generate_codex(
         self,
         messages: Sequence[Message],
@@ -620,7 +632,7 @@ class CloudEngine(InferenceEngine):
             body["instructions"] = instructions
 
         headers = {
-            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Authorization": f"Bearer {self._codex_access_token()}",
             "Content-Type": "application/json",
             "OpenAI-Beta": "responses=experimental",
         }
@@ -1383,7 +1395,7 @@ class CloudEngine(InferenceEngine):
             body["instructions"] = instructions
 
         headers = {
-            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Authorization": f"Bearer {await asyncio.to_thread(self._codex_access_token)}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
             "OpenAI-Beta": "responses=experimental",

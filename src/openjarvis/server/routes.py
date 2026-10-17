@@ -1130,6 +1130,8 @@ async def list_models(request: Request) -> ModelListResponse:
     if isinstance(configured, str) and configured.startswith("codex/") and configured not in model_ids:
         if _engine_key_for_model(engine, configured) == "cloud":
             model_ids.append(configured)
+    if configured in model_ids:
+        model_ids = [configured] + [mid for mid in model_ids if mid != configured]
     if not model_ids:
         model_ids = await list_local_models()
 
