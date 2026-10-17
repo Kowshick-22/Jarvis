@@ -283,6 +283,8 @@ def chat(
                     # Agents like NativeReActAgent do not accept engine_options
                     # in __init__; session opts live on BaseAgent._engine_options.
                     setattr(agent, "_engine_options", dict(engine_kwargs))
+                if agent is not None and voice_mode:
+                    setattr(agent, "voice_mode", True)
         except Exception as exc:
             console.print(
                 f"[yellow]Agent '{_safe_rich_label(agent_key)}' failed: "
@@ -472,6 +474,8 @@ def chat(
                 from openjarvis.agents._stubs import AgentContext
 
                 agent_context = AgentContext()
+                if voice_mode:
+                    agent_context.metadata["voice_mode"] = True
                 if agent_context_message is not None:
                     agent_context.conversation.add(agent_context_message)
                 for msg in history[:-1]:

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
+
+import httpx
 
 from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.agenda import (
@@ -333,6 +336,276 @@ class TestAgendaAgentExecution(unittest.TestCase):
         result = self.agent.run("o que tenho hoje")
         self.assertIsInstance(result, AgentResult)
         self.assertIn("Google Calendar não está conectado", result.content)
+
+
+class TestAgendaCreation(unittest.TestCase):
+    """Test voice event creation, confirmation state machine, dry-run, and 403 handling."""
+
+    def setUp(self):
+        self.engine = _make_mock_engine()
+        # Thursday, 2026-10-15 13:00 America/Fortaleza
+        self.fixed_now = datetime(2026, 10, 15, 13, 0, tzinfo=_TZ)
+        self.current_monotonic = 1000.0
+
+        def clock_fn():
+            return self.fixed_now
+
+        def monotonic_fn():
+            return self.current_monotonic
+
+        self.agent = AgendaAgent(
+            self.engine,
+            "gemma4:e2b",
+            timezone="America/Fortaleza",
+            voice_mode=True,
+            clock=clock_fn,
+            monotonic=monotonic_fn,
+        )
+
+    def test_creation_in_ask_mode_warns_voice_chat_only(self):
+        # Non-voice mode agent (like jarvis ask)
+        ask_agent = AgendaAgent(
+            self.engine,
+            "gemma4:e2b",
+            timezone="America/Fortaleza",
+            voice_mode=False,
+            clock=lambda: self.fixed_now,
+        )
+        res = ask_agent.run("marca dentista amanhã às 15h")
+        self.assertEqual(res.content, "A criação de eventos só funciona no chat --voice.")
+
+    def test_sim_without_pending_action_calls_llm(self):
+        res = self.agent.run("sim")
+        self.assertEqual(res.content, "Olá! Como posso ajudar?")
+        self.engine.generate.assert_called_once()
+
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True)
+    @patch("openjarvis.agents.agenda.check_duplicate_event", return_value=None)
+    @patch("openjarvis.agents.agenda.create_calendar_event")
+    def test_event_creation_full_flow_with_sim(self, mock_create, mock_dup, mock_is_conn):
+        # Turn 1: create request
+        res1 = self.agent.run("marca dentista amanhã às 15h")
+        self.assertEqual(res1.content, "Marcar Dentista para sexta, 16/10, 15h? Confirma?")
+        mock_create.assert_not_called()
+
+        # Turn 2: confirm with "sim"
+        res2 = self.agent.run("sim")
+        self.assertEqual(res2.content, "Pronto: Dentista, sexta 16/10, 15h.")
+        mock_create.assert_called_once()
+        payload = mock_create.call_args[0][0]
+        self.assertEqual(payload["summary"], "Dentista")
+        self.assertEqual(payload["start"]["dateTime"], "2026-10-16T15:00:00-03:00")
+        self.assertEqual(payload["end"]["dateTime"], "2026-10-16T16:00:00-03:00")
+        self.assertIn("reminders", payload)
+
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True)
+    @patch("openjarvis.agents.agenda.check_duplicate_event", return_value=None)
+    @patch("openjarvis.agents.agenda.create_calendar_event")
+    def test_affirmative_variants(self, mock_create, mock_dup, mock_is_conn):
+        variants = ["confirma", "pode marcar", "isso", "Sim!"]
+        for var in variants:
+            with self.subTest(var=var):
+                self.agent._pending_event = None
+                self.agent.run("marca dentista amanhã às 15h")
+                res = self.agent.run(var)
+                self.assertEqual(res.content, "Pronto: Dentista, sexta 16/10, 15h.")
+
+    def test_non_affirmative_cancels_and_warns(self):
+        non_affirmatives = [
+            "sim, mas queria às 16h",
+            "não",
+            "cancela",
+            "espera um pouco",
+            "sim, por favor",
+            "vamos ver",
+        ]
+        for phr in non_affirmatives:
+            with self.subTest(phr=phr):
+                self.agent._pending_event = None
+                res1 = self.agent.run("marca dentista amanhã às 15h")
+                self.assertIn("Confirma?", res1.content)
+
+                res2 = self.agent.run(phr)
+                self.assertEqual(res2.content, "Marcação cancelada.")
+                self.assertIsNone(self.agent._pending_event)
+
+    def test_expiration_after_two_minutes(self):
+        # Turn 1: create request
+        self.agent.run("marca dentista amanhã às 15h")
+        self.assertIsNotNone(self.agent._pending_event)
+
+        # Advance monotonic clock by 125 seconds (> 2 minutes)
+        self.current_monotonic += 125.0
+
+        # Turn 2: user says "sim", but it expired!
+        res = self.agent.run("sim")
+        # With no pending action, "sim" does nothing and falls through to normal conversation
+        self.assertEqual(res.content, "Olá! Como posso ajudar?")
+        self.assertIsNone(self.agent._pending_event)
+
+    def test_ambiguous_time_asks_and_resolves(self):
+        # Turn 1: ambiguous hour 3 (no morning/afternoon)
+        res1 = self.agent.run("marca dentista amanhã às 3")
+        self.assertEqual(res1.content, "Você prefere às 3 da manhã ou às 3 da tarde?")
+
+        # Turn 2: user clarifies "da tarde"
+        res2 = self.agent.run("da tarde")
+        self.assertEqual(res2.content, "Marcar Dentista para sexta, 16/10, 15h? Confirma?")
+
+        # Turn 3: confirms
+        with patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True), \
+             patch("openjarvis.agents.agenda.check_duplicate_event", return_value=None), \
+             patch("openjarvis.agents.agenda.create_calendar_event") as mock_create:
+            res3 = self.agent.run("sim")
+            self.assertEqual(res3.content, "Pronto: Dentista, sexta 16/10, 15h.")
+            payload = mock_create.call_args[0][0]
+            self.assertEqual(payload["start"]["dateTime"], "2026-10-16T15:00:00-03:00")
+
+    def test_past_time_today_asks_and_never_creates(self):
+        # Today is 13:00. Time 10:00 da manhã has passed today.
+        res = self.agent.run("marca reunião hoje às 10 da manhã")
+        self.assertEqual(res.content, "Esse horário já passou hoje. Para qual horário você gostaria de marcar?")
+        self.assertNotEqual(getattr(self.agent._pending_event, "awaiting", ""), "confirmation")
+
+    def test_weekday_equal_to_today_uses_next_week(self):
+        # Today is Thursday (quinta). User asks "na quinta às 15h" -> next week (22/10)
+        res = self.agent.run("marca reunião na quinta às 15h")
+        self.assertEqual(res.content, "Marcar Reunião para quinta, 22/10, 15h? Confirma?")
+
+    def test_missing_title_asks_for_title(self):
+        # User doesn't provide title
+        res1 = self.agent.run("marca amanhã às 15h")
+        self.assertEqual(res1.content, "Qual é o título do evento?")
+
+        # Turn 2: provides title
+        res2 = self.agent.run("Dentista")
+        self.assertEqual(res2.content, "Marcar Dentista para sexta, 16/10, 15h? Confirma?")
+
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True)
+    @patch("openjarvis.agents.agenda.check_duplicate_event")
+    @patch("openjarvis.agents.agenda.create_calendar_event")
+    def test_duplicate_event_detected_cancels_creation(self, mock_create, mock_dup, mock_is_conn):
+        # Existing event on same day and time
+        mock_dup.return_value = {"id": "dup_1", "summary": "Dentista"}
+
+        self.agent.run("marca dentista amanhã às 15h")
+        res = self.agent.run("sim")
+
+        self.assertIn("Já existe um compromisso 'Dentista' agendado para", res.content)
+        mock_create.assert_not_called()
+
+    def test_dry_run_environment_variable(self):
+        os.environ["JARVIS_AGENDA_DRY_RUN"] = "1"
+        try:
+            self.agent.run("marca dentista amanhã às 15h")
+            with patch("openjarvis.agents.agenda.create_calendar_event") as mock_create:
+                res = self.agent.run("sim")
+                self.assertEqual(res.content, "Simulação: Dentista, sexta 16/10, 15h. Nada foi criado.")
+                mock_create.assert_not_called()
+        finally:
+            os.environ.pop("JARVIS_AGENDA_DRY_RUN", None)
+
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True)
+    @patch("openjarvis.agents.agenda.check_duplicate_event", return_value=None)
+    @patch("openjarvis.agents.agenda.create_calendar_event")
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.disconnect")
+    def test_http_403_forbidden_handling_on_create(self, mock_disconnect, mock_create, mock_dup, mock_is_conn):
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_create.side_effect = httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=mock_response)
+
+        self.agent.run("marca dentista amanhã às 15h")
+        res = self.agent.run("sim")
+
+        # Must say write permission is missing and how to redo login
+        self.assertIn("Falta permissão de escrita no Google Calendar", res.content)
+        self.assertIn("jarvis connect gcalendar", res.content)
+        mock_disconnect.assert_not_called()
+
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.is_connected", return_value=True)
+    @patch("openjarvis.agents.agenda.check_duplicate_event")
+    @patch("openjarvis.connectors.gcalendar.GCalendarConnector.disconnect")
+    def test_http_403_forbidden_handling_on_check_duplicate(self, mock_disconnect, mock_dup, mock_is_conn):
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_dup.side_effect = httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=mock_response)
+
+        self.agent.run("marca dentista amanhã às 15h")
+        res = self.agent.run("sim")
+
+        self.assertIn("Falta permissão de escrita no Google Calendar", res.content)
+        self.assertIn("jarvis connect gcalendar", res.content)
+        mock_disconnect.assert_not_called()
+
+    def test_retry_on_unrecognized_time_asks_once_then_cancels(self):
+        # Requirement 2: when pending state expects time and response not understood, ask once then cancel
+        self.agent.run("marca dentista amanhã")
+        # 1st unrecognized response
+        res1 = self.agent.run("banana")
+        self.assertEqual(res1.content, "Não entendi. Pode repetir o horário?")
+        self.assertIsNotNone(self.agent._pending_event)
+
+        # 2nd unrecognized response -> cancels
+        res2 = self.agent.run("laranja")
+        self.assertEqual(res2.content, "Marcação cancelada.")
+        self.assertIsNone(self.agent._pending_event)
+
+    def test_retry_on_unrecognized_time_succeeds_on_second_turn(self):
+        self.agent.run("marca dentista amanhã")
+        res1 = self.agent.run("não sei")
+        self.assertEqual(res1.content, "Não entendi. Pode repetir o horário?")
+
+        res2 = self.agent.run("às 15h")
+        self.assertEqual(res2.content, "Marcar Dentista para sexta, 16/10, 15h? Confirma?")
+
+    def test_explicit_cancel_words_in_pending_state(self):
+        # Requirement 2: cancel immediately on "não", "cancela", "deixa pra lá"
+        for cancel_word in ["não", "cancela", "deixa pra lá", "deixa pra la"]:
+            with self.subTest(cancel_word=cancel_word):
+                self.agent._pending_event = None
+                self.agent.run("marca dentista amanhã")
+                res = self.agent.run(cancel_word)
+                self.assertEqual(res.content, "Marcação cancelada.")
+                self.assertIsNone(self.agent._pending_event)
+
+    def test_ambiguous_time_retry_then_resolves(self):
+        # Requirement 1 & 2: "marca dentista amanhã às três" -> ambiguous
+        res1 = self.agent.run("marca dentista amanhã às três")
+        self.assertEqual(res1.content, "Você prefere às 3 da manhã ou às 3 da tarde?")
+
+        # Unrecognized turn
+        res2 = self.agent.run("como assim?")
+        self.assertEqual(res2.content, "Não entendi. Pode repetir o horário?")
+
+        # Resolves with just the period
+        res3 = self.agent.run("da tarde")
+        self.assertEqual(res3.content, "Marcar Dentista para sexta, 16/10, 15h? Confirma?")
+
+    def test_ambiguous_time_period_only_variants(self):
+        # Requirement 2: "Uma resposta só com o período ('da tarde', 'de manhã', 'à noite') resolve a ambiguidade pendente."
+        self.agent._pending_event = None
+        self.agent.run("marca reunião amanhã às 10")
+        res = self.agent.run("de manhã")
+        self.assertEqual(res.content, "Marcar Reunião para sexta, 16/10, 10h? Confirma?")
+
+        self.agent._pending_event = None
+        self.agent.run("marca reunião amanhã às 10")
+        res = self.agent.run("à noite")
+        self.assertEqual(res.content, "Marcar Reunião para sexta, 16/10, 22h? Confirma?")
+
+    def test_missing_title_retry_and_cancellation(self):
+        self.agent._pending_event = None
+        res1 = self.agent.run("marca amanhã às 15h")
+        self.assertEqual(res1.content, "Qual é o título do evento?")
+
+        # Unrecognized / empty title
+        res2 = self.agent.run("por favor")
+        self.assertEqual(res2.content, "Não entendi. Pode repetir o título?")
+
+        # Cancel on "cancela"
+        res3 = self.agent.run("cancela")
+        self.assertEqual(res3.content, "Marcação cancelada.")
+        self.assertIsNone(self.agent._pending_event)
 
 
 if __name__ == "__main__":
