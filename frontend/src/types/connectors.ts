@@ -279,7 +279,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         label: 'Open the Apple menu () → System Settings → Privacy & Security (in the left sidebar) → scroll down and click "Full Disk Access"',
       },
       {
-        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "OpenJarvis.app" from Applications',
+        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "Tradelit.app" from Applications',
       },
       {
         label: 'Toggle the switch ON next to each app you added. Close and reopen your terminal (or restart Tradelit). iMessage data will be detected automatically — no credentials needed',
@@ -428,7 +428,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         label: 'Open the Apple menu () → System Settings → Privacy & Security (in the left sidebar) → scroll down and click "Full Disk Access"',
       },
       {
-        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "OpenJarvis.app" from Applications',
+        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "Tradelit.app" from Applications',
       },
       {
         label: 'Toggle the switch ON next to each app you added. Close and reopen your terminal (or restart Tradelit). Apple Notes will be detected automatically — no credentials needed',
@@ -449,7 +449,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         label: 'Open the Apple menu () → System Settings → Privacy & Security (in the left sidebar) → scroll down and click "Full Disk Access"',
       },
       {
-        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "OpenJarvis.app" from Applications',
+        label: 'Click the "+" button at the bottom of the list. Navigate to Applications → Utilities → select "Terminal.app" (or iTerm2/Warp if you use those). If you\'re using the desktop app, also add "Tradelit.app" from Applications',
       },
       {
         label: 'Toggle the switch ON next to each app you added. Close and reopen your terminal (or restart Tradelit). Apple Contacts will be detected automatically — no credentials needed',

@@ -381,7 +381,7 @@ fn project_root_near_executable(exe: &std::path::Path) -> Option<std::path::Path
 
     // Development builds and app bundles may sit inside the checkout. A
     // bundled dev build lives at
-    // frontend/src-tauri/target/release/bundle/macos/OpenJarvis.app/Contents/MacOS,
+    // frontend/src-tauri/target/release/bundle/macos/Tradelit.app/Contents/MacOS,
     // nine levels below the repo root.
     let mut dir = exe_dir.parent();
     for _ in 1..12 {
