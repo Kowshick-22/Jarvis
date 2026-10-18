@@ -507,7 +507,7 @@ impl Default for SetupStatus {
     fn default() -> Self {
         Self {
             phase: "awaiting_source".into(),
-            detail: "Choose where OpenJarvis should run models.".into(),
+            detail: "Choose where Tradelit should run models.".into(),
             ollama_ready: false,
             server_ready: false,
             model_ready: false,

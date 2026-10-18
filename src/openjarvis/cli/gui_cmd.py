@@ -587,7 +587,7 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
             )
         owner.refresh()
         url = f"http://127.0.0.1:{frontend_port}"
-        console.print(f"[green]OpenJarvis graphical mode is ready:[/green] {url}")
+        console.print(f"[green]Tradelit graphical mode is ready:[/green] {url}")
         if not no_browser:
             webbrowser.open(url)
 
