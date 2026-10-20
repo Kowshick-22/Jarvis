@@ -81,7 +81,7 @@ def _extract_text(parts: List[dict]) -> str:
 
 
 def _extract_tool_results(parts: List[dict]) -> List[ToolResult]:
-    """Map opencode ``tool`` parts to OpenJarvis ToolResults (best-effort)."""
+    """Map opencode ``tool`` parts to OpenJarvis ToolResults (supports V1 and V2)."""
     results: List[ToolResult] = []
     for p in parts:
         if not isinstance(p, dict) or p.get("type") != "tool":
@@ -89,11 +89,22 @@ def _extract_tool_results(parts: List[dict]) -> List[ToolResult]:
         state = p.get("state", {}) if isinstance(p.get("state"), dict) else {}
         status = state.get("status", "")
         output = state.get("output")
+        if output is None and "content" in state:
+            c = state["content"]
+            if isinstance(c, list):
+                output = "".join(
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in c
+                ).strip()
+            elif isinstance(c, dict):
+                output = c.get("text", "") or str(c)
+            else:
+                output = str(c)
         if output is None:
             output = state.get("title", "") or (json.dumps(state) if state else "")
         results.append(
             ToolResult(
-                tool_name=p.get("tool", p.get("name", "unknown")),
+                tool_name=p.get("name") or p.get("tool") or "unknown",
                 content=str(output),
                 # opencode tool state: completed | error | running | pending
                 success=status == "completed",
@@ -109,6 +120,7 @@ class OpenCodeAgent(BaseAgent):
     The ``engine`` is used to wire opencode at an OpenAI-compatible provider so
     inference runs on OpenJarvis's selected local model. ``agent`` selects
     opencode's built-in agent: ``build`` (full access) or ``plan`` (read-only).
+    Supports both OpenCode V1 and V2 (2.x) server APIs.
     """
 
     agent_id = "opencode"
@@ -122,6 +134,7 @@ class OpenCodeAgent(BaseAgent):
         engine: InferenceEngine,
         model: str,
         *,
+        api_version: str = "auto",
         bus: Optional[EventBus] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -151,6 +164,15 @@ class OpenCodeAgent(BaseAgent):
             rate_limiter=rate_limiter,
             agent_id=agent_id,
         )
+        if api_version not in ("auto", "v1", "v2"):
+            raise ValueError(
+                f"Invalid api_version {api_version!r}; expected 'auto', 'v1', or 'v2'"
+            )
+        self._api_version = api_version
+        self._resolved_api_version: Optional[str] = (
+            None if api_version == "auto" else api_version
+        )
+        self._current_session_id: Optional[str] = None
         self._workspace = workspace or os.getcwd()
         self._agent = agent
         self._provider_id = provider_id
@@ -282,6 +304,8 @@ class OpenCodeAgent(BaseAgent):
         if self._base:
             try:
                 with self._client() as c:
+                    if self._resolved_api_version == "v2" and self._current_session_id:
+                        c.delete(f"/api/session/{self._current_session_id}")
                     c.post("/global/dispose")
             except Exception:
                 pass
@@ -293,6 +317,9 @@ class OpenCodeAgent(BaseAgent):
                 self._proc.kill()
         self._proc = None
         self._base = ""
+        self._current_session_id = None
+        if self._api_version == "auto":
+            self._resolved_api_version = None
         if self._config_dir:
             shutil.rmtree(self._config_dir, ignore_errors=True)
             self._config_dir = None
@@ -316,10 +343,9 @@ class OpenCodeAgent(BaseAgent):
         # Resolve which opencode provider/model to address. Fail clearly rather
         # than letting opencode 500 on an unregistered provider.
         if self._provider_base_url:
-            model_spec = {"providerID": self._provider_id, "modelID": self._model_id}
+            prov, mid = self._provider_id, self._model_id
         elif "/" in self._model_id:
             prov, _, mid = self._model_id.partition("/")
-            model_spec = {"providerID": prov, "modelID": mid}
         else:
             self._emit_turn_end(turns=1, error=True)
             return AgentResult(
@@ -333,6 +359,9 @@ class OpenCodeAgent(BaseAgent):
                 metadata={"error": True},
             )
 
+        model_spec_v1 = {"providerID": prov, "modelID": mid}
+        model_spec_v2 = {"providerID": prov, "id": mid}
+
         try:
             self._ensure_server()
         except RuntimeError as exc:
@@ -341,38 +370,139 @@ class OpenCodeAgent(BaseAgent):
 
         data: dict = {}
         turn_parts: List[dict] = []
+        active_version = self._resolved_api_version or "v1"
+        session_id = ""
+
         try:
             with self._client() as c:
-                ses = c.post("/session", json={"title": input[:80]})
-                ses.raise_for_status()
-                session_id = ses.json()["id"]
+                version = self._resolved_api_version
 
-                body: dict = {
-                    "agent": self._agent,
-                    "model": model_spec,
-                    "parts": [{"type": "text", "text": input}],
-                }
+                # Session creation with auto-fallback
+                if version == "v2":
+                    ses = c.post(
+                        "/api/session",
+                        json={
+                            "title": input[:80],
+                            "agent": self._agent,
+                            "model": model_spec_v2,
+                        },
+                    )
+                    ses.raise_for_status()
+                    ses_data = ses.json()
+                    session_id = (
+                        ses_data.get("id")
+                        or (ses_data.get("data") or {}).get("id")
+                    )
+                elif version == "v1":
+                    ses = c.post("/session", json={"title": input[:80]})
+                    ses.raise_for_status()
+                    session_id = ses.json().get("id")
+                else:
+                    # auto-detection: try V1 first, fallback to V2 on 404
+                    try:
+                        ses = c.post("/session", json={"title": input[:80]})
+                        ses.raise_for_status()
+                        session_id = ses.json().get("id")
+                        self._resolved_api_version = "v1"
+                    except Exception as ses_exc:
+                        status = getattr(
+                            getattr(ses_exc, "response", None), "status_code", None
+                        )
+                        if status == 404:
+                            logger.info(
+                                "OpenCode /session returned 404; "
+                                "falling back to /api/session (v2)"
+                            )
+                            ses = c.post(
+                                "/api/session",
+                                json={
+                                    "title": input[:80],
+                                    "agent": self._agent,
+                                    "model": model_spec_v2,
+                                },
+                            )
+                            ses.raise_for_status()
+                            ses_data = ses.json()
+                            session_id = (
+                                ses_data.get("id")
+                                or (ses_data.get("data") or {}).get("id")
+                            )
+                            self._resolved_api_version = "v2"
+                        else:
+                            raise
 
-                resp = c.post(f"/session/{session_id}/message", json=body)
-                resp.raise_for_status()
-                data = resp.json()
+                if not session_id:
+                    raise RuntimeError(
+                        "Could not obtain session ID from opencode server"
+                    )
+                self._current_session_id = session_id
+                active_version = self._resolved_api_version or "v1"
 
-                # The prompt POST returns only the final assistant message;
-                # tool executions live in intermediate messages of the turn, so
-                # pull the whole session to recover them (verified against a
-                # live opencode session). Falls back to the final message.
-                turn_parts = list(data.get("parts", []))
-                try:
-                    msgs = c.get(f"/session/{session_id}/message").json()
-                    if isinstance(msgs, list):
-                        turn_parts = [
-                            part
-                            for mm in msgs
-                            if isinstance(mm, dict)
-                            for part in mm.get("parts", [])
-                        ]
-                except Exception as get_exc:
-                    logger.debug("opencode message fetch failed: %s", get_exc)
+                # Prompt / message dispatch
+                if active_version == "v2":
+                    resp = c.post(
+                        f"/api/session/{session_id}/prompt",
+                        json={"text": input},
+                    )
+                    resp.raise_for_status()
+                    resp_json = resp.json()
+                    data = (
+                        resp_json.get("data")
+                        if isinstance(resp_json, dict) and "data" in resp_json
+                        else resp_json
+                    )
+
+                    # Wait for turn completion if wait endpoint available
+                    try:
+                        w = c.post(f"/api/experimental/session/{session_id}/wait")
+                        if getattr(w, "status_code", 200) == 404:
+                            c.post(f"/api/session/{session_id}/wait")
+                    except Exception as wait_exc:
+                        logger.debug("opencode wait failed or omitted: %s", wait_exc)
+
+                    # Retrieve transcript
+                    try:
+                        raw_msgs = c.get(f"/api/session/{session_id}/message").json()
+                        msgs = (
+                            raw_msgs.get("data", [])
+                            if isinstance(raw_msgs, dict)
+                            else (raw_msgs if isinstance(raw_msgs, list) else [])
+                        )
+                        for m in msgs:
+                            if not isinstance(m, dict):
+                                continue
+                            parts = m.get("content") or m.get("parts") or []
+                            if isinstance(parts, list):
+                                turn_parts.extend(parts)
+                            if (
+                                m.get("type") == "assistant"
+                                or m.get("info", {}).get("role") == "assistant"
+                            ):
+                                data = m
+                    except Exception as get_exc:
+                        logger.debug("opencode v2 message fetch failed: %s", get_exc)
+                else:
+                    body: dict = {
+                        "agent": self._agent,
+                        "model": model_spec_v1,
+                        "parts": [{"type": "text", "text": input}],
+                    }
+                    resp = c.post(f"/session/{session_id}/message", json=body)
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    turn_parts = list(data.get("parts", []))
+                    try:
+                        msgs = c.get(f"/session/{session_id}/message").json()
+                        if isinstance(msgs, list):
+                            turn_parts = [
+                                part
+                                for mm in msgs
+                                if isinstance(mm, dict)
+                                for part in (mm.get("parts") or mm.get("content") or [])
+                            ]
+                    except Exception as get_exc:
+                        logger.debug("opencode message fetch failed: %s", get_exc)
         except Exception as exc:
             logger.error("opencode run failed: %s", exc, exc_info=True)
             self._emit_turn_end(turns=1, error=True)
@@ -383,7 +513,13 @@ class OpenCodeAgent(BaseAgent):
             )
 
         info = data.get("info", {}) if isinstance(data, dict) else {}
-        content = _extract_text(data.get("parts", []))
+        model_obj = data.get("model", {}) if isinstance(data.get("model"), dict) else {}
+        final_parts = data.get("content") or data.get("parts") or []
+        content = (
+            _extract_text(final_parts)
+            if isinstance(final_parts, list)
+            else (data.get("text", "") if isinstance(data, dict) else "")
+        )
         tool_results = _extract_tool_results(turn_parts)
 
         self._emit_turn_end(turns=1)
@@ -392,12 +528,23 @@ class OpenCodeAgent(BaseAgent):
             tool_results=tool_results,
             turns=1,
             metadata={
-                "finish": info.get("finish"),
-                "tokens": info.get("tokens"),
-                "provider_id": info.get("providerID", self._provider_id),
-                "model_id": info.get("modelID", self._model_id),
-                "session_id": info.get("sessionID", ""),
-                "agent": self._agent,
+                "finish": data.get("finish") or info.get("finish"),
+                "tokens": data.get("tokens") or info.get("tokens"),
+                "provider_id": (
+                    model_obj.get("providerID")
+                    or info.get("providerID", prov)
+                ),
+                "model_id": (
+                    model_obj.get("id")
+                    or model_obj.get("modelID")
+                    or info.get("modelID", mid)
+                ),
+                "session_id": (
+                    data.get("sessionID")
+                    or info.get("sessionID", session_id or "")
+                ),
+                "agent": data.get("agent") or self._agent,
+                "api_version": active_version,
             },
         )
 
