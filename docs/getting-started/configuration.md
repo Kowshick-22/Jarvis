@@ -1152,7 +1152,8 @@ OpenJarvis respects the following environment variables:
 | `FXMACRODATA_API_KEY` | API key for the `fx_macro_data` tool. Optional: recent USD releases, the USD release calendar and every currency's indicator catalogue work without it. The key unlocks other currencies, full history and FX rates. Keys: [fxmacrodata.com](https://fxmacrodata.com/subscribe). |
 | `FIRECRAWL_API_KEY` | API key for the Firecrawl web search engine. Optional. When set and no other search key is, `auto` engine selection prefers Firecrawl over the keyless tier, and URL queries return the page or PDF as markdown. Keys: [firecrawl.dev](https://www.firecrawl.dev/app/api-keys?utm_source=openjarvis&utm_medium=integration). |
 | `FIRECRAWL_API_URL` | Base URL of the Firecrawl API, for example a [self-hosted Firecrawl](https://docs.firecrawl.dev/contributing/self-host). Optional. Defaults to `https://api.firecrawl.dev`. Any other URL enables the Firecrawl engine without a key, for instances that run without auth. |
-| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, `firecrawl`, or `duckduckgo`. |
+| `KEENABLE_API_KEY` | API key for the Keenable web search engine. Optional: the engine works without a key, rate limited per IP, and a key raises the limits. Keenable is used only when `OPENJARVIS_WEB_SEARCH_ENGINE` is `keenable`; `auto` never picks it. Keys: [app.keenable.ai](https://app.keenable.ai/console). |
+| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, `firecrawl`, `keenable`, or `duckduckgo`. |
 
 In the desktop app, you can save `ATLASCLOUD_API_KEY` in **Cloud Models** or
 **Settings → API Keys** instead of setting an environment variable.

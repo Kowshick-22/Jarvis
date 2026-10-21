@@ -1441,6 +1441,7 @@ class TestWebSearchDestination:
             "SERPLY_PROXY_LOCATION",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
+            "KEENABLE_API_KEY",
             "OPENJARVIS_WEB_SEARCH_ENGINE",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -1527,6 +1528,23 @@ class TestWebSearchDestination:
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
         assert "self-hosted at localhost" in _web_search_destination()
 
+    def test_keenable_is_named_when_picked(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "keenable")
+        assert _web_search_destination() == "Keenable web search API (keyless)"
+        monkeypatch.setenv("KEENABLE_API_KEY", "kn-test")
+        assert _web_search_destination() == "Keenable web search API (keyed)"
+
+    def test_keenable_key_alone_does_not_change_the_destination(self, monkeypatch):
+        """auto never picks Keenable, so its key must not move the audit."""
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("KEENABLE_API_KEY", "kn-test")
+        assert _web_search_destination() == "You.com web search API (keyless free tier)"
+
     def test_matches_the_tool_resolution(self, monkeypatch):
         """Guard against the audit's copy of the precedence rule drifting from
         WebSearchTool._resolve_engine, which is the source of truth."""
@@ -1539,6 +1557,7 @@ class TestWebSearchDestination:
             "duckduckgo": "DuckDuckGo",
             "serply": "Serply",
             "firecrawl": "Firecrawl",
+            "keenable": "Keenable",
         }
         engines = (
             None,
@@ -1548,6 +1567,7 @@ class TestWebSearchDestination:
             "duckduckgo",
             "serply",
             "firecrawl",
+            "keenable",
         )
         keys = (
             ("TAVILY_API_KEY", "tvly-key"),
@@ -1555,6 +1575,7 @@ class TestWebSearchDestination:
             ("SERPLY_API_KEY", "srp-key"),
             ("FIRECRAWL_API_KEY", "fc-test"),
             ("FIRECRAWL_API_URL", "http://localhost:3002"),
+            ("KEENABLE_API_KEY", "kn-test"),
         )
         for present in itertools.product((False, True), repeat=len(keys)):
             for engine in engines:

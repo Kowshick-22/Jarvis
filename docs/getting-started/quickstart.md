@@ -150,11 +150,11 @@ export FIRECRAWL_API_KEY="..."   # free tier: https://www.firecrawl.dev/app/api-
 ```
 
 Set `OPENJARVIS_WEB_SEARCH_ENGINE` to pick an engine explicitly — `youcom`,
-`tavily`, `serply`, `firecrawl`, or `duckduckgo`. The default, `auto`, uses
-Tavily when `TAVILY_API_KEY` is set, then You.com, then Serply, then Firecrawl,
-and settles on the You.com keyless tier when no key is set at all. DuckDuckGo
-remains the fallback for every engine; dropping to it is logged at `WARNING`,
-since its scraped results are unranked.
+`tavily`, `serply`, `firecrawl`, `keenable`, or `duckduckgo`. The default,
+`auto`, uses Tavily when `TAVILY_API_KEY` is set, then You.com, then Serply,
+then Firecrawl, and settles on the You.com keyless tier when no key is set at
+all. DuckDuckGo remains the fallback for every engine; dropping to it is
+logged at `WARNING`, since its scraped results are unranked.
 
 Serply proxies Google itself, so Google search operators reach the index
 unchanged: `site:arxiv.org` restricts the corpus and `after:2026-01-01` bounds
@@ -172,6 +172,12 @@ instead of the hosted API; no key is needed if your instance runs without
 auth. Page fetches then run on your instance, and search queries go on to the
 search backend it is configured with. Keys:
 [firecrawl.dev](https://www.firecrawl.dev/app/api-keys?utm_source=openjarvis&utm_medium=integration).
+
+Keenable is only used when you pick it with
+`OPENJARVIS_WEB_SEARCH_ENGINE=keenable`; `auto` never selects it. It works
+without a key, rate limited per IP, and `KEENABLE_API_KEY` raises the limits.
+URL queries are still fetched locally. Keys:
+[app.keenable.ai](https://app.keenable.ai/console).
 
 The script does not automatically source `.env` files. Run `source .env`
 first if that is where you keep the key. Stop any existing OpenJarvis server
@@ -301,7 +307,7 @@ Agents add multi-turn reasoning and tool-calling capabilities. The `orchestrator
 | `retrieval` | Search the memory store for relevant context. |
 | `llm` | Make sub-queries to another model. |
 | `file_read` | Read files with path validation. |
-| `web_search` | Web search via You.com (keyless by default), Tavily, Serply, or Firecrawl, with a DuckDuckGo fallback. |
+| `web_search` | Web search via You.com (keyless by default), Tavily, Serply, Firecrawl, or Keenable, with a DuckDuckGo fallback. |
 
 ### CLI Example
 

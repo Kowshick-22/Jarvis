@@ -31,6 +31,12 @@ def _no_ambient_firecrawl_key(monkeypatch):
     monkeypatch.delenv("FIRECRAWL_API_URL", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_keenable_key(monkeypatch):
+    """Same guard for the Keenable key (#972)."""
+    monkeypatch.delenv("KEENABLE_API_KEY", raising=False)
+
+
 class TestWebSearchTool:
     def test_spec_name_and_category(self):
         tool = WebSearchTool(api_key="test-key")
@@ -845,6 +851,23 @@ class TestEngineSelection:
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
         assert WebSearchTool()._resolve_engine() == "firecrawl"
 
+    def test_auto_never_picks_keenable(self, monkeypatch):
+        """Keenable is explicit-only, so its key alone changes nothing."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.setenv("KEENABLE_API_KEY", "kn-test")
+        assert WebSearchTool()._resolve_engine() == "youcom"
+
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        assert WebSearchTool()._resolve_engine() == "tavily"
+
+    def test_keenable_is_picked_explicitly(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        assert WebSearchTool(engine="keenable")._resolve_engine() == "keenable"
+        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "keenable")
+        assert WebSearchTool()._resolve_engine() == "keenable"
+
     def test_explicit_engine_overrides_key_presence(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
         assert WebSearchTool(engine="youcom")._resolve_engine() == "youcom"
@@ -875,6 +898,8 @@ class TestEngineSelection:
         assert "serply" in spec.metadata["engines"]
         assert "FIRECRAWL_API_KEY" in spec.metadata["optional_api_keys"]
         assert "firecrawl" in spec.metadata["engines"]
+        assert "KEENABLE_API_KEY" in spec.metadata["optional_api_keys"]
+        assert "keenable" in spec.metadata["engines"]
         # Backwards compatible for readers of the old single-key field.
         assert spec.metadata["requires_api_key"] == "TAVILY_API_KEY"
 
@@ -1634,6 +1659,196 @@ class TestFirecrawlCredentialSafety:
         assert "LocalProtocolError" in caplog.text
         assert "private-token" not in caplog.text
         assert "fc-key" not in caplog.text
+
+
+class TestKeenableSearch:
+    """The Keenable engine, exercised against mocked HTTP."""
+
+    PAYLOAD = {
+        "results": [
+            {
+                "title": "Result A",
+                "url": "https://example.com/a",
+                "description": "",
+                "snippet": "Snippet A\n\nmore   text",
+            },
+            {
+                "title": "Result B",
+                "url": "https://example.com/b",
+                "description": "",
+                "snippet": "Snippet B",
+            },
+        ]
+    }
+
+    def _mock_post(self, monkeypatch, payload=None, status=200):
+        import httpx
+
+        calls = {}
+
+        def _post(url, **kwargs):
+            calls["url"] = url
+            calls["json"] = kwargs.get("json")
+            calls["headers"] = kwargs.get("headers")
+            resp = MagicMock()
+            resp.status_code = status
+            resp.json.return_value = payload if payload is not None else self.PAYLOAD
+            if status >= 400:
+                resp.text = "error body"
+                resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    f"HTTP {status}", request=MagicMock(), response=resp
+                )
+            else:
+                resp.raise_for_status = MagicMock()
+            return resp
+
+        monkeypatch.setattr(httpx, "post", _post)
+        return calls
+
+    def _mock_ddgs(self, monkeypatch):
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = []
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+    def test_keyless_endpoint_names_the_app_and_sends_no_key(self, monkeypatch):
+        calls = self._mock_post(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="test query")
+
+        assert result.success is True
+        assert calls["url"] == "https://api.keenable.ai/v1/search/public"
+        assert calls["headers"]["X-Keenable-Title"] == "OpenJarvis"
+        assert "X-API-Key" not in calls["headers"]
+        assert result.metadata["engine"] == "keenable"
+        assert result.metadata["keenable_tier"] == "keyless"
+
+    def test_keyed_endpoint_when_key_is_set(self, monkeypatch):
+        monkeypatch.setenv("KEENABLE_API_KEY", "  kn-test\n")
+        calls = self._mock_post(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="test query")
+
+        assert calls["url"] == "https://api.keenable.ai/v1/search"
+        assert calls["headers"]["X-API-Key"] == "kn-test"
+        assert calls["headers"]["X-Keenable-Title"] == "OpenJarvis"
+        assert result.metadata["keenable_tier"] == "keyed"
+
+    def test_result_format_matches_the_other_engines(self, monkeypatch):
+        """Same labeled Source/Summary shape agents already parse (#390),
+        with the page text taken from ``snippet``."""
+        self._mock_post(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="test query")
+
+        assert "### Result A" in result.content
+        assert "Source: https://example.com/a" in result.content
+        assert "Summary: Snippet A more text" in result.content
+        assert "### Result B" in result.content
+        assert result.metadata["num_results"] == 2
+
+    def test_long_snippets_are_capped(self, monkeypatch):
+        payload = {
+            "results": [
+                {"title": "Long", "url": "https://e.com", "snippet": "x" * 4000}
+            ]
+        }
+        self._mock_post(monkeypatch, payload=payload)
+
+        result = WebSearchTool(engine="keenable").execute(query="q")
+
+        assert "x" * 500 + "…" in result.content
+        assert "x" * 501 not in result.content
+
+    @pytest.mark.parametrize(("requested", "sent"), [(7, 7), (0, 1), (100, 50)])
+    def test_max_results_stay_in_the_accepted_range(self, monkeypatch, requested, sent):
+        calls = self._mock_post(monkeypatch)
+        WebSearchTool(engine="keenable", max_results=3).execute(
+            query="q", max_results=requested
+        )
+        assert calls["json"] == {"query": "q", "max_results": sent}
+
+    def test_empty_results(self, monkeypatch):
+        self._mock_post(monkeypatch, payload={"results": []})
+        result = WebSearchTool(engine="keenable").execute(query="q")
+        assert result.success is True
+        assert result.content == "No results found."
+
+    def test_keyless_rate_limit_points_to_a_key(self, monkeypatch):
+        self._mock_post(monkeypatch, status=429)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="q")
+
+        assert result.metadata["fallback_from"] == "keenable"
+        assert result.metadata["degraded"] is True
+        reason = result.metadata["fallback_reason"]
+        assert "KEENABLE_API_KEY" in reason
+        assert "app.keenable.ai/console" in reason
+
+    def test_rejected_key_names_the_env_var(self, monkeypatch):
+        monkeypatch.setenv("KEENABLE_API_KEY", "kn-bad")
+        self._mock_post(monkeypatch, status=401)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="q")
+
+        assert result.metadata["fallback_from"] == "keenable"
+        assert "KEENABLE_API_KEY" in result.metadata["fallback_reason"]
+        assert "kn-bad" not in result.metadata["fallback_reason"]
+
+    def test_other_http_error_reports_the_status(self, monkeypatch):
+        self._mock_post(monkeypatch, status=500)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="keenable").execute(query="q")
+
+        assert "HTTP 500" in result.metadata["fallback_reason"]
+        assert "KEENABLE_API_KEY" not in result.metadata["fallback_reason"]
+
+    def test_url_queries_are_still_fetched_locally(self, monkeypatch):
+        import httpx
+
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
+        monkeypatch.setattr(
+            httpx, "post", MagicMock(side_effect=AssertionError("must not be called"))
+        )
+        resp = MagicMock()
+        resp.text = "<html><body>Local text</body></html>"
+        resp.headers = {"content-type": "text/html"}
+        resp.raise_for_status = MagicMock()
+        monkeypatch.setattr(httpx.Client, "get", MagicMock(return_value=resp))
+
+        result = WebSearchTool(engine="keenable").execute(query="https://example.com/a")
+
+        assert "Local text" in result.content
+        assert result.metadata["extractor"] == "local"
+
+    def test_client_errors_never_expose_the_key(self, monkeypatch, caplog):
+        """HTTPX can echo an invalid header value; only its type is reported."""
+        import httpcore
+        import httpx
+
+        secret = "kn-private-test-value"
+        transport = httpx.HTTPTransport()
+        transport._pool = httpcore.ConnectionPool(
+            network_backend=httpcore.MockBackend([])
+        )
+        tool = WebSearchTool(engine="keenable", keenable_api_key=secret + "\ninvalid")
+        monkeypatch.setattr(tool, "_duckduckgo_search", lambda *a: "Search fallback")
+        with httpx.Client(transport=transport, trust_env=False) as client:
+            monkeypatch.setattr(httpx, "post", client.post)
+            with caplog.at_level("WARNING"):
+                result = tool.execute(query="test query")
+
+        assert result.metadata["fallback_from"] == "keenable"
+        assert "LocalProtocolError" in result.metadata["fallback_reason"]
+        assert secret not in caplog.text
+        assert secret not in result.content
+        assert secret not in str(result.metadata)
 
 
 class TestFallbackVisibility:

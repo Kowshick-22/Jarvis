@@ -13,6 +13,10 @@ API-backed engine over the DuckDuckGo HTML scrape:
   PDFs) as markdown
 * none of them → You.com, keyless free tier (no signup, rate limited per IP)
 
+``keenable`` is only used when picked explicitly; ``auto`` never resolves to
+it. It needs no key either (rate limited per IP), and ``KEENABLE_API_KEY``
+raises the limits.
+
 The keyless tier is what makes a fresh install API-backed with zero config.
 DuckDuckGo remains the last resort for every engine, and dropping to it is now
 logged at WARNING with the reason, so a typo'd key no longer looks identical to
@@ -67,8 +71,21 @@ FIRECRAWL_KEYS_URL = (
     "?utm_source=openjarvis&utm_medium=integration"
 )
 
+KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search"
+KEENABLE_KEYLESS_SEARCH_URL = "https://api.keenable.ai/v1/search/public"
+KEENABLE_API_KEY_ENV = "KEENABLE_API_KEY"
+# The keyless endpoint rejects requests that do not name the calling app, so
+# the header is sent on every request, keyed or not.
+KEENABLE_APP_TITLE = "OpenJarvis"
+# Each result carries a few thousand characters of page text in ``snippet``;
+# it is cut the same way as Firecrawl descriptions.
+KEENABLE_SNIPPET_CHARS = 500
+# The API accepts 1 to 50 results per query and rejects anything else.
+KEENABLE_MAX_RESULTS = 50
+KEENABLE_KEYS_URL = "https://app.keenable.ai/console"
+
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
-ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl")
+ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl", "keenable")
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
@@ -115,6 +132,7 @@ class WebSearchTool(BaseTool):
         serply_location: str | None = None,
         firecrawl_api_key: str | None = None,
         firecrawl_api_url: str | None = None,
+        keenable_api_key: str | None = None,
     ):
         """Configure the search engine.
 
@@ -141,6 +159,9 @@ class WebSearchTool(BaseTool):
         self._firecrawl_self_hosted = (
             self._firecrawl_api_url != FIRECRAWL_DEFAULT_API_URL
         )
+        self._keenable_api_key = (
+            keenable_api_key or os.environ.get(KEENABLE_API_KEY_ENV) or ""
+        ).strip() or None
         self._max_results = max_results
 
         requested = (engine or os.environ.get(ENGINE_ENV) or "auto").strip().lower()
@@ -161,7 +182,7 @@ class WebSearchTool(BaseTool):
         Tavily, then keyed You.com, then Serply, then Firecrawl. The keyless
         You.com tier is last and remains the zero-config API-backed path, which
         means a Serply or Firecrawl key only ever wins over having no key at
-        all.
+        all. ``keenable`` is never chosen here, with or without its key.
         """
         if self._engine != "auto":
             return self._engine
@@ -207,6 +228,7 @@ class WebSearchTool(BaseTool):
                     YOUCOM_API_KEY_ENV,
                     SERPLY_API_KEY_ENV,
                     FIRECRAWL_API_KEY_ENV,
+                    KEENABLE_API_KEY_ENV,
                 ],
                 "engine": engine,
                 "engines": list(ENGINES),
@@ -632,6 +654,98 @@ class WebSearchTool(BaseTool):
             text = text[:max_chars] + "\n\n[Content truncated]"
         return text
 
+    def _keenable_request(self) -> tuple[str, dict[str, str]]:
+        """Pick the Keenable endpoint and its headers together.
+
+        Without a key the public endpoint serves the request, rate limited per
+        IP. A key moves it to the keyed endpoint, which has higher limits.
+        """
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Keenable-Title": KEENABLE_APP_TITLE,
+        }
+        if self._keenable_api_key:
+            headers["X-API-Key"] = self._keenable_api_key
+            return KEENABLE_SEARCH_URL, headers
+        return KEENABLE_KEYLESS_SEARCH_URL, headers
+
+    @staticmethod
+    def _format_keenable_results(payload: dict[str, Any]) -> tuple[str, int]:
+        """Render a Keenable search payload in the shared result format.
+
+        The page text is in ``snippet``; ``description`` is the fallback but is
+        usually empty. Whitespace is collapsed and the text is cut to
+        :data:`KEENABLE_SNIPPET_CHARS`.
+        """
+        results = payload.get("results") if isinstance(payload, dict) else None
+        parts: list[str] = []
+        count = 0
+        for item in results or []:
+            title = item.get("title") or "Untitled"
+            url = item.get("url", "")
+            text = item.get("snippet") or item.get("description") or ""
+            content = " ".join(str(text).split())
+            if len(content) > KEENABLE_SNIPPET_CHARS:
+                content = content[:KEENABLE_SNIPPET_CHARS].rstrip() + "…"
+            parts.append(f"### {title}\nSource: {url}\nSummary: {content}")
+            count += 1
+        return "\n\n---\n\n".join(parts), count
+
+    def _keenable_search(self, query: str, max_results: int) -> ToolResult:
+        """Search via Keenable, keyless unless ``KEENABLE_API_KEY`` is set."""
+        import httpx
+
+        keyed = bool(self._keenable_api_key)
+        url, headers = self._keenable_request()
+        limit = max(1, min(int(max_results), KEENABLE_MAX_RESULTS))
+        try:
+            response = httpx.post(
+                url,
+                json={"query": query, "max_results": limit},
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 401:
+                raise _WebSearchEngineError(
+                    f"Keenable rejected the credential in {KEENABLE_API_KEY_ENV}"
+                ) from None
+            if status == 429 and not keyed:
+                raise _WebSearchEngineError(
+                    "Keenable keyless rate limit reached. Set "
+                    f"{KEENABLE_API_KEY_ENV} for higher limits; keys are at "
+                    f"{KEENABLE_KEYS_URL}"
+                ) from None
+            if status == 429:
+                raise _WebSearchEngineError(
+                    "Keenable rate limit reached (HTTP 429)"
+                ) from None
+            raise _WebSearchEngineError(
+                f"Keenable search failed with HTTP {status}"
+            ) from None
+        except (httpx.HTTPError, ValueError) as exc:
+            # Header validation errors can include the X-API-Key value, so
+            # only the exception type is reported.
+            raise _WebSearchEngineError(
+                f"Keenable search failed ({type(exc).__name__})"
+            ) from None
+
+        formatted, count = self._format_keenable_results(payload)
+        return ToolResult(
+            tool_name="web_search",
+            content=formatted or "No results found.",
+            success=True,
+            metadata={
+                "num_results": count,
+                "engine": "keenable",
+                "keenable_tier": "keyed" if keyed else "keyless",
+            },
+        )
+
     def _duckduckgo_search(self, query: str, max_results: int) -> str:
         """Search using DuckDuckGo as fallback."""
         from ddgs import DDGS
@@ -728,6 +842,8 @@ class WebSearchTool(BaseTool):
                 return self._serply_search(query, max_results)
             if engine == "firecrawl":
                 return self._firecrawl_search(query, max_results)
+            if engine == "keenable":
+                return self._keenable_search(query, max_results)
             return self._tavily_search(query, max_results)
         except _WebSearchEngineError as exc:
             reason = str(exc)

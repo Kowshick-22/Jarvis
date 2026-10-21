@@ -76,6 +76,7 @@ API_KEY_ENV_VARS = {
     "YOUDOTCOM_API_KEY": ("You.com web search", {"youcom", "web_search"}),
     "SERPLY_API_KEY": ("Serply web search", {"serply", "web_search"}),
     "FIRECRAWL_API_KEY": ("Firecrawl web search", {"firecrawl", "web_search"}),
+    "KEENABLE_API_KEY": ("Keenable web search", {"keenable", "web_search"}),
 }
 
 CHANNEL_SECRET_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -1154,7 +1155,15 @@ def _web_search_destination() -> str:
     source of truth; ``test_data_boundary_audit`` asserts the two agree.
     """
     engine = (os.environ.get("OPENJARVIS_WEB_SEARCH_ENGINE") or "auto").strip().lower()
-    if engine not in {"auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl"}:
+    if engine not in {
+        "auto",
+        "youcom",
+        "tavily",
+        "duckduckgo",
+        "serply",
+        "firecrawl",
+        "keenable",
+    }:
         engine = "auto"
     if engine == "auto":
         if os.environ.get("TAVILY_API_KEY"):
@@ -1189,6 +1198,10 @@ def _web_search_destination() -> str:
                 "on to its configured search backend)"
             )
         return "Firecrawl search API"
+    if engine == "keenable":
+        # Only reachable when picked explicitly; auto never resolves to it.
+        keyed = (os.environ.get("KEENABLE_API_KEY") or "").strip()
+        return f"Keenable web search API ({'keyed' if keyed else 'keyless'})"
     tier = "keyed" if os.environ.get("YOUDOTCOM_API_KEY") else "keyless free tier"
     return f"You.com web search API ({tier})"
 
