@@ -273,6 +273,7 @@ class TestRunParsing:
 
 V2_SPIKE_RESPONSE = {
     "id": "msg_assistant_1",
+    "time": {"created": 1, "completed": 2},
     "type": "assistant",
     "agent": "build",
     "finish": "stop",
@@ -286,9 +287,7 @@ V2_SPIKE_RESPONSE = {
             "id": "call_v2_1",
             "state": {
                 "status": "completed",
-                "content": [
-                    {"type": "text", "text": "V2 file written successfully."}
-                ],
+                "content": [{"type": "text", "text": "V2 file written successfully."}],
             },
         },
     ],
@@ -332,7 +331,18 @@ class _FakeV2Client:
         if path == "/api/session":
             return _FakeStatusResp({"data": {"id": "ses_v2"}})
         if path == "/api/session/ses_v2/prompt":
-            return _FakeStatusResp({"data": V2_SPIKE_RESPONSE})
+            return _FakeStatusResp(
+                {
+                    "data": {
+                        "id": "msg_user_1",
+                        "sessionID": "ses_v2",
+                        "type": "user",
+                        "time": {"created": 0},
+                        "payload": {"text": json["text"]},
+                        "delivery": "queue",
+                    }
+                }
+            )
         if "/wait" in path:
             return _FakeStatusResp({}, status_code=204)
         if path.endswith("/message"):
@@ -342,7 +352,19 @@ class _FakeV2Client:
     def get(self, path: str, **kw):
         self.calls.append(("GET", path, kw))
         if path == "/api/session/ses_v2/message":
-            return _FakeStatusResp({"data": [V2_SPIKE_RESPONSE]})
+            return _FakeStatusResp(
+                {
+                    "data": [
+                        V2_SPIKE_RESPONSE,
+                        {
+                            "id": "msg_idle_1",
+                            "time": {"created": 3},
+                            "type": "idle",
+                            "outcome": "succeeded",
+                        },
+                    ],
+                }
+            )
         if path == "/session/ses_v1/message":
             return _FakeStatusResp(TURN_MESSAGES)
         return _FakeStatusResp({})
@@ -476,4 +498,3 @@ class TestV2AndAutoDetection:
         delete_calls = [call for call in client.calls if call[0] == "DELETE"]
         assert len(delete_calls) == 1
         assert delete_calls[0][1] == "/api/session/ses_v2"
-

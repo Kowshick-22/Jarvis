@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import time
@@ -113,6 +114,40 @@ def _extract_tool_results(parts: List[dict]) -> List[ToolResult]:
     return results
 
 
+def _fetch_v2_messages(client: Any, session_id: str) -> List[dict]:
+    """Read the entire V2 transcript in chronological order.
+
+    V2 defaults to the newest 50 messages. Its cursor carries the ordering,
+    so only the first request may specify ``order``. A cursor can point past
+    the last message; an empty page terminates that traversal.
+    """
+    messages: List[dict] = []
+    params: dict = {"order": "asc", "limit": 200}
+    seen_cursors: set[str] = set()
+    while True:
+        response = client.get(f"/api/session/{session_id}/message", params=params)
+        response.raise_for_status()
+        body = response.json()
+        page = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(page, list) or any(not isinstance(m, dict) for m in page):
+            raise RuntimeError("OpenCode V2 returned an invalid transcript")
+        messages.extend(page)
+        if not page:
+            return messages
+        cursor = body.get("cursor", {})
+        if not isinstance(cursor, dict):
+            raise RuntimeError("OpenCode V2 returned an invalid transcript cursor")
+        next_cursor = cursor.get("next")
+        if next_cursor is None:
+            return messages
+        if not isinstance(next_cursor, str) or not next_cursor:
+            raise RuntimeError("OpenCode V2 returned an invalid transcript cursor")
+        if next_cursor in seen_cursors:
+            raise RuntimeError("OpenCode V2 repeated a transcript cursor")
+        seen_cursors.add(next_cursor)
+        params = {"cursor": next_cursor, "limit": 200}
+
+
 @AgentRegistry.register("opencode")
 class OpenCodeAgent(BaseAgent):
     """Agent that delegates coding tasks to a local ``opencode`` server.
@@ -182,8 +217,14 @@ class OpenCodeAgent(BaseAgent):
         self._permission = permission
         self._hostname = hostname
         self._port = port
-        self._server_password = server_password or os.environ.get(
-            "OPENCODE_SERVER_PASSWORD", ""
+        # V2 always authenticates, generating a password when none is supplied.
+        # Choose it here so the spawned server and our client share a credential
+        # without reading or logging the server's generated password.
+        self._server_password = (
+            server_password
+            or os.environ.get("OPENCODE_PASSWORD", "")
+            or os.environ.get("OPENCODE_SERVER_PASSWORD", "")
+            or secrets.token_urlsafe(32)
         )
         self._timeout = timeout
         self._opencode_bin = opencode_bin or shutil.which("opencode") or "opencode"
@@ -249,8 +290,10 @@ class OpenCodeAgent(BaseAgent):
         config_path.write_text(json.dumps(self._build_config(), indent=2), "utf-8")
         env = dict(os.environ)
         env["OPENCODE_CONFIG"] = str(config_path)
-        if self._server_password:
-            env["OPENCODE_SERVER_PASSWORD"] = self._server_password
+        # V1 uses the legacy name; V2 prefers OPENCODE_PASSWORD. Set both so an
+        # inherited value cannot override an explicitly supplied password.
+        env["OPENCODE_PASSWORD"] = self._server_password
+        env["OPENCODE_SERVER_PASSWORD"] = self._server_password
         self._proc = subprocess.Popen(
             [
                 self._opencode_bin,
@@ -389,9 +432,8 @@ class OpenCodeAgent(BaseAgent):
                     )
                     ses.raise_for_status()
                     ses_data = ses.json()
-                    session_id = (
-                        ses_data.get("id")
-                        or (ses_data.get("data") or {}).get("id")
+                    session_id = ses_data.get("id") or (ses_data.get("data") or {}).get(
+                        "id"
                     )
                 elif version == "v1":
                     ses = c.post("/session", json={"title": input[:80]})
@@ -423,10 +465,9 @@ class OpenCodeAgent(BaseAgent):
                             )
                             ses.raise_for_status()
                             ses_data = ses.json()
-                            session_id = (
-                                ses_data.get("id")
-                                or (ses_data.get("data") or {}).get("id")
-                            )
+                            session_id = ses_data.get("id") or (
+                                ses_data.get("data") or {}
+                            ).get("id")
                             self._resolved_api_version = "v2"
                         else:
                             raise
@@ -445,42 +486,61 @@ class OpenCodeAgent(BaseAgent):
                         json={"text": input},
                     )
                     resp.raise_for_status()
-                    resp_json = resp.json()
-                    data = (
-                        resp_json.get("data")
-                        if isinstance(resp_json, dict) and "data" in resp_json
-                        else resp_json
-                    )
 
-                    # Wait for turn completion if wait endpoint available
-                    try:
-                        w = c.post(f"/api/experimental/session/{session_id}/wait")
-                        if getattr(w, "status_code", 200) == 404:
-                            c.post(f"/api/session/{session_id}/wait")
-                    except Exception as wait_exc:
-                        logger.debug("opencode wait failed or omitted: %s", wait_exc)
-
-                    # Retrieve transcript
-                    try:
-                        raw_msgs = c.get(f"/api/session/{session_id}/message").json()
-                        msgs = (
-                            raw_msgs.get("data", [])
-                            if isinstance(raw_msgs, dict)
-                            else (raw_msgs if isinstance(raw_msgs, list) else [])
+                    # V2 admits a queued user input, not a completed assistant
+                    # reply. Both synchronization and transcript retrieval must
+                    # succeed before we can report a completed turn.
+                    wait = c.post(f"/api/experimental/session/{session_id}/wait")
+                    wait.raise_for_status()
+                    terminal: Optional[dict] = None
+                    for message in _fetch_v2_messages(c, session_id):
+                        if message.get("type") == "idle":
+                            terminal = message
+                            continue
+                        if message.get("type") != "assistant":
+                            continue
+                        terminal = None
+                        parts = message.get("content")
+                        if not isinstance(parts, list):
+                            raise RuntimeError(
+                                "OpenCode V2 returned invalid assistant content"
+                            )
+                        turn_parts.extend(parts)
+                        data = message
+                    if not data:
+                        raise RuntimeError(
+                            "OpenCode V2 completed without an assistant reply"
                         )
-                        for m in msgs:
-                            if not isinstance(m, dict):
-                                continue
-                            parts = m.get("content") or m.get("parts") or []
-                            if isinstance(parts, list):
-                                turn_parts.extend(parts)
-                            if (
-                                m.get("type") == "assistant"
-                                or m.get("info", {}).get("role") == "assistant"
-                            ):
-                                data = m
-                    except Exception as get_exc:
-                        logger.debug("opencode v2 message fetch failed: %s", get_exc)
+                    # The wait route reports idle even when execution failed.
+                    # The terminal transcript marker records the actual outcome;
+                    # a provider finish reason alone does not describe the turn.
+                    if terminal is None:
+                        raise RuntimeError(
+                            "OpenCode V2 returned an incomplete turn transcript"
+                        )
+                    if terminal.get("outcome") != "succeeded" or terminal.get("error"):
+                        error = terminal.get("error")
+                        detail = (
+                            error.get("message", "Turn failed")
+                            if isinstance(error, dict)
+                            else f"Turn {terminal.get('outcome', 'did not complete')}"
+                        )
+                        raise RuntimeError(f"OpenCode V2 failed: {detail}")
+                    if data.get("error") or data.get("finish") in (
+                        "error",
+                        "content-filter",
+                    ):
+                        error = data.get("error")
+                        detail = (
+                            error.get("message", "Assistant generation failed")
+                            if isinstance(error, dict)
+                            else "Assistant generation failed"
+                        )
+                        raise RuntimeError(f"OpenCode V2 assistant failed: {detail}")
+                    if data.get("finish") not in ("stop", "length", "tool-calls"):
+                        raise RuntimeError(
+                            "OpenCode V2 returned an unfinished assistant reply"
+                        )
                 else:
                     body: dict = {
                         "agent": self._agent,
@@ -531,8 +591,7 @@ class OpenCodeAgent(BaseAgent):
                 "finish": data.get("finish") or info.get("finish"),
                 "tokens": data.get("tokens") or info.get("tokens"),
                 "provider_id": (
-                    model_obj.get("providerID")
-                    or info.get("providerID", prov)
+                    model_obj.get("providerID") or info.get("providerID", prov)
                 ),
                 "model_id": (
                     model_obj.get("id")
@@ -540,8 +599,7 @@ class OpenCodeAgent(BaseAgent):
                     or info.get("modelID", mid)
                 ),
                 "session_id": (
-                    data.get("sessionID")
-                    or info.get("sessionID", session_id or "")
+                    data.get("sessionID") or info.get("sessionID", session_id or "")
                 ),
                 "agent": data.get("agent") or self._agent,
                 "api_version": active_version,
