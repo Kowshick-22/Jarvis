@@ -62,6 +62,82 @@ def test_cartesia_synthesize():
 
 
 # ---------------------------------------------------------------------------
+# ElevenLabs backend tests
+# ---------------------------------------------------------------------------
+
+
+def test_elevenlabs_registered():
+    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+
+    TTSRegistry.register_value("elevenlabs", ElevenLabsTTSBackend)
+    assert TTSRegistry.contains("elevenlabs")
+
+
+def test_elevenlabs_synthesize(monkeypatch):
+    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    backend = ElevenLabsTTSBackend(api_key="fake-key")
+
+    with patch(
+        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        return_value=b"fake-audio-mp3-bytes",
+    ) as mock_synth:
+        result = backend.synthesize("Olá", voice_id="test-voice")
+
+    assert result.audio == b"fake-audio-mp3-bytes"
+    assert result.format == "mp3"
+    assert result.voice_id == "test-voice"
+    assert mock_synth.call_args.kwargs["voice_id"] == "test-voice"
+
+
+def test_elevenlabs_wav_wraps_pcm(monkeypatch):
+    import io
+    import wave
+
+    from openjarvis.speech import elevenlabs_tts
+
+    class _Resp:
+        content = b"\x00\x01" * 240
+
+        def raise_for_status(self):
+            pass
+
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setattr(elevenlabs_tts.httpx, "post", fake_post)
+    backend = elevenlabs_tts.ElevenLabsTTSBackend(api_key="fake-key")
+    result = backend.synthesize("Olá", voice_id="abc", output_format="wav", speed=2.0)
+
+    assert captured["url"].endswith("/v1/text-to-speech/abc")
+    assert captured["params"] == {"output_format": "pcm_24000"}
+    assert captured["headers"] == {"xi-api-key": "fake-key"}
+    assert captured["json"]["voice_settings"] == {"speed": 1.2}
+    assert result.format == "wav"
+    assert result.sample_rate == 24000
+    with wave.open(io.BytesIO(result.audio)) as wav:
+        assert wav.getframerate() == 24000
+        assert wav.getnframes() == 240
+
+
+def test_elevenlabs_requires_key_and_voice(monkeypatch):
+    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
+    assert ElevenLabsTTSBackend().health() is False
+    with pytest.raises(RuntimeError, match="ELEVENLABS_API_KEY"):
+        ElevenLabsTTSBackend().synthesize("Olá", voice_id="abc")
+    with pytest.raises(RuntimeError, match="voice_id"):
+        ElevenLabsTTSBackend(api_key="k").synthesize("Olá")
+
+
+# ---------------------------------------------------------------------------
 # Kokoro backend tests
 # ---------------------------------------------------------------------------
 
