@@ -10,7 +10,8 @@ import io
 import os
 import re
 import wave
-from typing import List
+from collections.abc import Callable
+from typing import Any, List, TypeVar
 
 import httpx
 
@@ -32,6 +33,58 @@ _OUTPUT_FORMATS = {
     "pcm": f"pcm_{_PCM_SAMPLE_RATE}",
     "wav": f"pcm_{_PCM_SAMPLE_RATE}",  # wrapped in a WAV header locally
 }
+_ResponseT = TypeVar("_ResponseT")
+
+
+def _normalize_api_key(value: str) -> str:
+    key = value.strip()
+    if any(not 33 <= ord(char) <= 126 for char in key):
+        # Reject unsupported header characters without echoing the credential.
+        raise ValueError("ElevenLabs API key contains unsupported characters")
+    return key
+
+
+def _request(
+    request: Callable[..., httpx.Response],
+    path: str,
+    api_key: str,
+    read_response: Callable[[httpx.Response], _ResponseT],
+    **kwargs: Any,
+) -> _ResponseT:
+    """Keep provider request/response details out of errors and their tracebacks."""
+    key = _normalize_api_key(api_key)
+    if not key:
+        raise RuntimeError("ELEVENLABS_API_KEY not set")
+    try:
+        response = request(
+            f"{_ELEVENLABS_API_BASE}{path}",
+            headers={"xi-api-key": key},
+            **kwargs,
+        )
+        response.raise_for_status()
+        # Reading audio/JSON belongs inside the same boundary as sending:
+        # transport and decode errors can contain credential-bearing details.
+        return read_response(response)
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"ElevenLabs request failed (HTTP {exc.response.status_code})"
+        ) from None
+    except Exception as exc:
+        # Preserve the error category, never its message, headers, URL, or body.
+        raise RuntimeError(
+            f"ElevenLabs request failed ({type(exc).__name__})"
+        ) from None
+
+
+def _voice_ids(response: httpx.Response) -> List[str]:
+    payload = response.json()
+    voices = payload.get("voices", []) if isinstance(payload, dict) else None
+    if not isinstance(voices, list) or any(
+        not isinstance(voice, dict) or not isinstance(voice.get("voice_id"), str)
+        for voice in voices
+    ):
+        raise ValueError("Invalid voice list")
+    return [voice["voice_id"] for voice in voices]
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int = _PCM_SAMPLE_RATE) -> bytes:
@@ -54,10 +107,12 @@ def _elevenlabs_synthesize(
     speed: float = 1.0,
 ) -> bytes:
     """Call the ElevenLabs TTS API and return raw audio bytes."""
-    resp = httpx.post(
-        f"{_ELEVENLABS_API_BASE}/text-to-speech/{voice_id}",
+    return _request(
+        httpx.post,
+        f"/text-to-speech/{voice_id}",
+        api_key,
+        lambda response: response.content,
         params={"output_format": _OUTPUT_FORMATS.get(output_format, "mp3_44100_128")},
-        headers={"xi-api-key": api_key},
         json={
             "text": text,
             "model_id": model,
@@ -70,8 +125,6 @@ def _elevenlabs_synthesize(
         },
         timeout=120.0,
     )
-    resp.raise_for_status()
-    return resp.content
 
 
 @TTSRegistry.register("elevenlabs")
@@ -83,7 +136,9 @@ class ElevenLabsTTSBackend(TTSBackend):
     def __init__(
         self, *, api_key: str = "", model: str = "", voice_id: str = ""
     ) -> None:
-        self._api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
+        self._api_key = _normalize_api_key(
+            api_key or os.environ.get("ELEVENLABS_API_KEY", "")
+        )
         self._model = model or os.environ.get(
             "ELEVENLABS_MODEL", "eleven_multilingual_v2"
         )
@@ -127,13 +182,13 @@ class ElevenLabsTTSBackend(TTSBackend):
     def available_voices(self) -> List[str]:
         if not self._api_key:
             return []
-        resp = httpx.get(
-            f"{_ELEVENLABS_API_BASE}/voices",
-            headers={"xi-api-key": self._api_key},
+        return _request(
+            httpx.get,
+            "/voices",
+            self._api_key,
+            _voice_ids,
             timeout=30.0,
         )
-        resp.raise_for_status()
-        return [v["voice_id"] for v in resp.json().get("voices", [])]
 
     def health(self) -> bool:
         return bool(self._api_key)
