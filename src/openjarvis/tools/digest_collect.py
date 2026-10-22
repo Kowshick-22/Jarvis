@@ -507,9 +507,11 @@ class DigestCollectTool(BaseTool):
         configured = _configured_digest_sources(self._digest_config)
         if not configured:
             return _SOURCES_DESCRIPTION
+        # Drop the generic example: models copy it (e.g. `gcalendar`) even
+        # when the user's calendar is another connector.
         return (
-            f"{_SOURCES_DESCRIPTION} Prefer the IDs configured for this user: "
-            f"{configured}."
+            "List of connector IDs to fetch from. Use the IDs configured "
+            f"for this user: {configured}."
         )
 
     @property

@@ -159,10 +159,11 @@ def test_sources_description_lists_configured_digest_sources():
         description = _sources_description(DigestCollectTool())
 
     assert (
-        "Prefer the IDs configured for this user: calendar: caldav; health: oura."
+        "Use the IDs configured for this user: calendar: caldav; health: oura."
         in description
     )
     assert "messages:" not in description
+    assert "gcalendar" not in description
 
 
 def test_sources_description_falls_back_when_config_fails():
