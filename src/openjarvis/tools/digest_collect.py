@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from functools import cached_property
+from typing import Any, Dict, List, Optional
 
 from openjarvis.connectors._stubs import Document
 from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Section definitions: ordered list of (section_name, connector_ids)
@@ -444,12 +448,69 @@ def _filter_pending_invites(docs: List[Document]) -> List[Document]:
     return pending
 
 
+# [digest.<section>] tables whose sources are advertised in the tool spec.
+_DIGEST_CONFIG_SECTIONS = ("calendar", "messages", "health", "world")
+# Source IDs come from user config and end up in the model prompt, so only
+# plain connector-style identifiers are advertised.
+_SOURCE_ID_RE = re.compile(r"[a-z0-9_]{1,40}")
+_SOURCES_DESCRIPTION = (
+    "List of connector IDs to fetch from (e.g., ['gmail', 'oura', 'gcalendar'])."
+)
+
+
+def _configured_digest_sources(digest: Optional[Any] = None) -> str:
+    """Return the user's ``[digest.*]`` sources as ``section: id, id; ...``.
+
+    Lets a chat agent query e.g. ``caldav`` instead of guessing the
+    ``gcalendar`` example.  *digest* is a ``DigestConfig``; when omitted the
+    default config is loaded.  Returns ``""`` when it cannot be loaded.
+    """
+    if digest is None:
+        try:
+            from openjarvis.core.config import load_config
+
+            digest = load_config().digest
+        except Exception as exc:
+            logger.debug(
+                "digest_collect: could not load digest config: %s",
+                type(exc).__name__,
+            )
+            return ""
+
+    parts: List[str] = []
+    for name in _DIGEST_CONFIG_SECTIONS:
+        section = getattr(digest, name, None)
+        sources = [
+            source
+            for source in getattr(section, "sources", None) or []
+            if isinstance(source, str) and _SOURCE_ID_RE.fullmatch(source)
+        ]
+        if sources:
+            parts.append(f"{name}: {', '.join(sources)}")
+    return "; ".join(parts)
+
+
 @ToolRegistry.register("digest_collect")
 class DigestCollectTool(BaseTool):
     """Collect recent data from multiple connectors for digest synthesis."""
 
     tool_id = "digest_collect"
     is_local = True
+
+    def __init__(self, digest_config: Optional[Any] = None) -> None:
+        self._digest_config = digest_config
+
+    @cached_property
+    def _sources_description(self) -> str:
+        # Built once per instance: a config edit takes effect on the next
+        # session, like the rest of the agent's tool list.
+        configured = _configured_digest_sources(self._digest_config)
+        if not configured:
+            return _SOURCES_DESCRIPTION
+        return (
+            f"{_SOURCES_DESCRIPTION} Prefer the IDs configured for this user: "
+            f"{configured}."
+        )
 
     @property
     def spec(self) -> ToolSpec:
@@ -467,10 +528,7 @@ class DigestCollectTool(BaseTool):
                     "sources": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "List of connector IDs to fetch from "
-                            "(e.g., ['gmail', 'oura', 'gcalendar'])."
-                        ),
+                        "description": self._sources_description,
                     },
                     "hours_back": {
                         "type": "number",
