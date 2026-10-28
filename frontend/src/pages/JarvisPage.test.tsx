@@ -8,7 +8,7 @@ describe('JARVIS HUD prototype', () => {
 
     expect(html).toContain('J.A.R.V.I.S.');
     expect(html).toContain('Command input');
-    expect(html).toContain('No audio is being recorded');
+    expect(html).toContain('Microphone stays off until explicitly activated in the real app.');
     expect(html).toContain('Local model');
     expect(html).toContain('Not connected');
   });
