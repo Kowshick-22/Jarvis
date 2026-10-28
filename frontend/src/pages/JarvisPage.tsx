@@ -58,7 +58,7 @@ export function JarvisPage() {
           <div className="jarvis-system-row"><Cpu size={16} /><span>Local model</span><b>Not connected</b></div>
           <div className="jarvis-system-row"><Mic size={16} /><span>Microphone</span><b>{listening ? 'UI demo' : 'Off'}</b></div>
           <div className="jarvis-system-row"><Wifi size={16} /><span>Network</span><b>Approval required</b></div>
-          <div className="jarvis-sidebar-footer"><ShieldCheck size={16} /><span>Your data stays local by design.<small>*Internet approval is a UI demo only.</small></span></div>
+          <div className="jarvis-sidebar-footer"><ShieldCheck size={16} /><span>Privacy-first prototype.<small>Storage and network controls are not fully implemented yet.</small></span></div>
         </aside>
 
         <section className="jarvis-main">
