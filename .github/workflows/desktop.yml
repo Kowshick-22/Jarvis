@@ -19,6 +19,14 @@ on:
         description: 'Tag to build (e.g. v1.0.2.dev500). If set, autotag dispatches use this. github.ref still controls the checkout.'
         required: false
         type: string
+      build_mode:
+        description: 'Development uploads a macOS test artifact only; release keeps signing and publishing.'
+        required: true
+        type: choice
+        options:
+          - release
+          - development
+        default: release
 
 concurrency:
   # All rolling builds publish to the same desktop-edge release. Serialize
@@ -171,12 +179,90 @@ jobs:
         working-directory: frontend/src-tauri
         run: cargo test
 
+  # Safe development path: build an Apple Silicon DMG, upload it as a
+  # short-lived workflow artifact, and never publish a release or use signing keys.
+  # The updater is disabled in this build so it cannot follow the production channel.
+  build-development:
+    needs: [validate]
+    if: github.event_name == 'workflow_dispatch' && inputs.build_mode == 'development'
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Rust stable for Apple Silicon
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'frontend/src-tauri -> target'
+
+      - name: Download Apple Silicon Ollama sidecar
+        shell: bash
+        run: |
+          cd frontend/src-tauri/scripts
+          chmod +x download-ollama.sh
+          ./download-ollama.sh aarch64-apple-darwin
+
+      - name: Write unsigned development config
+        env:
+          DEV_VERSION: 1.0.1-dev.${{ github.run_number }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          const version = process.env.DEV_VERSION;
+          if (!/^\\d+\\.\\d+\\.\\d+-dev\\.\\d+$/.test(version)) {
+            throw new Error('Unexpected development version: ' + version);
+          }
+          writeFileSync('frontend/src-tauri/tauri.dev.conf.json', JSON.stringify({
+            version,
+            bundle: {
+              targets: ['dmg'],
+              createUpdaterArtifacts: false,
+              externalBin: ['binaries/ollama'],
+              macOS: { signingIdentity: '-' },
+            },
+            plugins: { updater: { active: false } },
+          }, null, 2));
+          NODE
+
+      - name: Build Apple Silicon development DMG
+        working-directory: frontend
+        env:
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npx tauri build --target aarch64-apple-darwin --bundles dmg --config src-tauri/tauri.dev.conf.json
+
+      - name: Upload development DMG (not a GitHub release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: jarvis-macos-arm64-development-${{ github.run_number }}
+          path: frontend/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   # Remove stale artifacts from the desktop-edge rolling pre-release so that
   # only the current build's files are available for download. (The stable
   # `desktop-latest` channel the installed app polls is never cleaned here.)
   clean-release:
     needs: [validate]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.build_mode != 'development'
     runs-on: ubuntu-latest
     steps:
       - name: Delete old assets from desktop-edge
@@ -213,7 +299,7 @@ jobs:
 
   build-and-release:
     needs: [validate, clean-release]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.build_mode != 'development'
     outputs:
       tag: ${{ steps.release-info.outputs.tag }}
       tauri_version: ${{ steps.release-info.outputs.tauri_version }}
