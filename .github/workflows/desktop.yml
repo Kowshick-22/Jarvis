@@ -228,7 +228,7 @@ jobs:
           node <<'NODE'
           const { writeFileSync } = require('node:fs');
           const version = process.env.DEV_VERSION;
-          if (!/^\\d+\\.\\d+\\.\\d+-dev\\.\\d+$/.test(version)) {
+          if (!/^\d+\.\d+\.\d+-dev\.\d+$/.test(version)) {
             throw new Error('Unexpected development version: ' + version);
           }
           writeFileSync('frontend/src-tauri/tauri.dev.conf.json', JSON.stringify({
